@@ -284,8 +284,6 @@ impl Plugin for RenderPlugin {
             ViewPlugin,
             MeshRenderAssetPlugin,
             GlobalsPlugin,
-            #[cfg(feature = "morph")]
-            mesh::MorphPlugin,
             TexturePlugin,
             BatchingPlugin {
                 debug_flags: self.debug_flags,
