@@ -39,9 +39,11 @@ use bevy_platform::collections::{HashMap, HashSet};
 use bevy_platform::hash::FixedHasher;
 use bevy_render::camera::{DirtySpecializations, PendingQueues};
 use bevy_render::erased_render_asset::ErasedRenderAssets;
+use bevy_render::mesh::allocator::MeshSlabs;
 use bevy_render::occlusion_culling::{
     OcclusionCulling, OcclusionCullingSubview, OcclusionCullingSubviewEntities,
 };
+use bevy_render::sync_world::{MainEntity, RenderEntity};
 use bevy_render::sync_world::{MainEntityHashMap, MainEntityHashSet};
 use bevy_render::view::RenderVisibleMeshEntities;
 use bevy_render::{
@@ -49,10 +51,6 @@ use bevy_render::{
     camera::SortedCameras,
     mesh::allocator::MeshAllocator,
     view::{NoIndirectDrawing, RetainedViewEntity},
-};
-use bevy_render::{
-    mesh::allocator::SlabId,
-    sync_world::{MainEntity, RenderEntity},
 };
 use bevy_render::{
     mesh::RenderMesh,
@@ -2306,15 +2304,16 @@ pub fn queue_shadows(
                     Some(material.binding.group.0)
                 };
 
-                let (vertex_slab, index_slab) =
-                    mesh_allocator.mesh_slabs(&mesh_instance.mesh_asset_id());
+                let Some(mesh_slabs) = mesh_allocator.mesh_slabs(&mesh_instance.mesh_asset_id())
+                else {
+                    continue;
+                };
 
                 let batch_set_key = ShadowBatchSetKey {
                     pipeline: pipeline_id,
                     draw_function,
                     material_bind_group_index,
-                    vertex_slab: vertex_slab.unwrap_or_default(),
-                    index_slab,
+                    slabs: mesh_slabs,
                 };
 
                 shadow_phase.add(
@@ -2365,21 +2364,18 @@ pub struct ShadowBatchSetKey {
     /// In the case of PBR, this is the `MaterialBindGroupIndex`.
     pub material_bind_group_index: Option<u32>,
 
-    /// The ID of the slab of GPU memory that contains vertex data.
+    /// The IDs of the slabs of GPU memory in the mesh allocator that contain
+    /// the mesh data.
     ///
-    /// For non-mesh items, you can fill this with 0 if your items can be
-    /// multi-drawn, or with a unique value if they can't.
-    pub vertex_slab: SlabId,
-
-    /// The ID of the slab of GPU memory that contains index data, if present.
-    ///
-    /// For non-mesh items, you can safely fill this with `None`.
-    pub index_slab: Option<SlabId>,
+    /// For non-mesh items, you can fill the [`MeshSlabs::vertex_slab_id`] with
+    /// 0 if your items can be multi-drawn, or with a unique value if they
+    /// can't.
+    pub slabs: MeshSlabs,
 }
 
 impl PhaseItemBatchSetKey for ShadowBatchSetKey {
     fn indexed(&self) -> bool {
-        self.index_slab.is_some()
+        self.slabs.index_slab_id.is_some()
     }
 }
 
