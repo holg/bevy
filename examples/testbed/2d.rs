@@ -504,7 +504,9 @@ mod texture_atlas_builder {
                     ..default()
                 },
                 Anchor::BOTTOM_CENTER,
-                ShowAabbGizmo::default(),
+                ShowAabbGizmo {
+                    color: Some(Color::WHITE),
+                },
                 DespawnOnExit(super::Scene::TextureAtlasBuilder),
                 Transform::from_translation(position),
             ));
