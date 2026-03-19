@@ -1355,6 +1355,7 @@ impl MaterialBindlessSlab {
         self.create_sampler_binding_resource_arrays(
             &mut binding_resource_arrays,
             fallback_bindless_resources,
+            bindless_descriptor,
             required_binding_array_size,
         );
 
@@ -1362,6 +1363,7 @@ impl MaterialBindlessSlab {
         self.create_texture_binding_resource_arrays(
             &mut binding_resource_arrays,
             fallback_image,
+            bindless_descriptor,
             required_binding_array_size,
         );
 
@@ -1382,6 +1384,7 @@ impl MaterialBindlessSlab {
         &'a self,
         binding_resource_arrays: &'b mut Vec<(&'a u32, BindingResourceArray<'a>)>,
         fallback_bindless_resources: &'a FallbackBindlessResources,
+        bindless_descriptor: &'a BindlessDescriptor,
         required_binding_array_size: Option<u32>,
     ) {
         // We have one binding resource array per sampler type.
@@ -1399,6 +1402,17 @@ impl MaterialBindlessSlab {
                 &fallback_bindless_resources.comparison_sampler,
             ),
         ] {
+            // Skip sampler types that this material doesn't use. This avoids
+            // creating bind group entries for bindings that aren't in the
+            // layout, which is important on Metal where each binding array
+            // consumes a buffer slot.
+            if !bindless_descriptor
+                .resources
+                .contains(&bindless_resource_type)
+            {
+                continue;
+            }
+
             let mut sampler_bindings = vec![];
 
             match self.samplers.get(&bindless_resource_type) {
@@ -1443,6 +1457,7 @@ impl MaterialBindlessSlab {
         &'a self,
         binding_resource_arrays: &'b mut Vec<(&'a u32, BindingResourceArray<'a>)>,
         fallback_image: &'a FallbackImage,
+        bindless_descriptor: &'a BindlessDescriptor,
         required_binding_array_size: Option<u32>,
     ) {
         for (bindless_resource_type, fallback_image) in [
@@ -1459,6 +1474,14 @@ impl MaterialBindlessSlab {
                 &fallback_image.cube_array,
             ),
         ] {
+            // Skip texture types that this material doesn't use.
+            if !bindless_descriptor
+                .resources
+                .contains(&bindless_resource_type)
+            {
+                continue;
+            }
+
             let mut texture_bindings = vec![];
 
             let binding_number = bindless_resource_type
