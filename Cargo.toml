@@ -611,6 +611,9 @@ pbr_transmission_textures = ["bevy_internal/pbr_transmission_textures"]
 # Enable support for Clustered Decals
 pbr_clustered_decals = ["bevy_internal/pbr_clustered_decals"]
 
+# Enable support for native photometric light profiles (IES/LDT)
+pbr_photometric_lights = ["bevy_internal/pbr_photometric_lights"]
+
 # Enable support for Light Textures
 pbr_light_textures = ["bevy_internal/pbr_light_textures"]
 
@@ -1295,6 +1298,29 @@ name = "Spotlight"
 description = "Illustrates spot lights"
 category = "3D Rendering"
 wasm = true
+
+[[example]]
+name = "photometric_comparison_baseline"
+path = "examples/3d/photometric_comparison_baseline.rs"
+doc-scrape-examples = true
+
+[package.metadata.example.photometric_comparison_baseline]
+name = "Photometric Comparison (Baseline)"
+description = "Road lighting approximated with multi-spot workaround (10 lights)"
+category = "3D Rendering"
+wasm = false
+
+[[example]]
+name = "photometric_comparison_native"
+path = "examples/3d/photometric_comparison_native.rs"
+doc-scrape-examples = true
+required-features = ["pbr_photometric_lights", "pbr_clustered_decals"]
+
+[package.metadata.example.photometric_comparison_native]
+name = "Photometric Comparison (Native)"
+description = "Road lighting with native per-fragment photometric profiles (5 lights)"
+category = "3D Rendering"
+wasm = false
 
 [[example]]
 name = "bloom_3d"
@@ -3497,6 +3523,18 @@ doc-scrape-examples = true
 [package.metadata.example.many_materials]
 name = "Many Animated Materials"
 description = "Benchmark to test rendering many animated materials"
+category = "Stress Tests"
+wasm = true
+
+[[example]]
+name = "bistro_bench"
+path = "examples/stress_tests/bistro_bench.rs"
+doc-scrape-examples = true
+required-features = ["jpeg"]
+
+[package.metadata.example.bistro_bench]
+name = "Bistro Benchmark"
+description = "Benchmark"
 category = "Stress Tests"
 wasm = true
 

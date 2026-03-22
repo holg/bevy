@@ -156,6 +156,9 @@ pbr_transmission_textures = [
 # Clustered Decal support
 pbr_clustered_decals = ["bevy_pbr?/pbr_clustered_decals"]
 
+# Native photometric light profiles (IES/LDT)
+pbr_photometric_lights = ["bevy_pbr?/pbr_photometric_lights"]
+
 # Light Texture support
 pbr_light_textures = [
   "bevy_pbr?/pbr_clustered_decals",

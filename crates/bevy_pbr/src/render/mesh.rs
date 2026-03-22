@@ -3203,6 +3203,10 @@ impl SpecializedMeshPipeline for MeshPipeline {
             }
         }
 
+        if self.clustered_decals_are_usable && cfg!(feature = "pbr_photometric_lights") {
+            shader_defs.push("PHOTOMETRIC_LIGHTS".into());
+        }
+
         let format = if key.contains(MeshPipelineKey::HDR) {
             ViewTarget::TEXTURE_FORMAT_HDR
         } else {

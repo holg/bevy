@@ -45,10 +45,12 @@ use crate::{
         self, RenderViewIrradianceVolumeBindGroupEntries, IRRADIANCE_VOLUMES_ARE_USABLE,
     },
     prepass,
+    render::photometric::{self, RenderViewPhotometricBindGroupEntries},
     resources::{AtmosphereBuffer, AtmosphereData, AtmosphereSampler, AtmosphereTextures},
     Bluenoise, EnvironmentMapUniformBuffer, ExtractedAtmosphere, FogMeta,
     GlobalClusterableObjectMeta, GpuClusteredLights, GpuFog, GpuLights, LightMeta,
-    LightProbesBuffer, LightProbesUniform, MeshPipeline, MeshPipelineKey, RenderViewLightProbes,
+    LightProbesBuffer, LightProbesUniform, MeshPipeline, MeshPipelineKey,
+    PhotometricDescriptorsBuffer, RenderPhotometricProfiles, RenderViewLightProbes,
     ScreenSpaceAmbientOcclusionResources, ScreenSpaceReflectionsBuffer,
     ScreenSpaceReflectionsUniform, ShadowSamplers, ViewClusterBindings, ViewShadowBindings,
     ViewTransmissionTexture, CLUSTERED_FORWARD_STORAGE_BUFFER_COUNT,
@@ -466,6 +468,17 @@ pub fn layout_entries(
         ));
     }
 
+    // Photometric lights
+    if let Some(photometric_entries) =
+        photometric::get_bind_group_layout_entries(render_device, render_adapter)
+    {
+        binding_array_entries = binding_array_entries.extend_with_indices((
+            (8, photometric_entries[0]),
+            (9, photometric_entries[1]),
+            (10, photometric_entries[2]),
+        ));
+    }
+
     [entries.to_vec(), binding_array_entries.to_vec()]
 }
 
@@ -636,12 +649,22 @@ pub fn prepare_mesh_view_bind_groups(
         Res<ContactShadowsBuffer>,
     ),
     oit_buffers: Res<OitBuffers>,
-    (decals_buffer, render_decals, atmosphere_buffer, atmosphere_sampler, blue_noise): (
+    (
+        decals_buffer,
+        render_decals,
+        atmosphere_buffer,
+        atmosphere_sampler,
+        blue_noise,
+        render_photometric_profiles,
+        photometric_descriptors_buffer,
+    ): (
         Res<DecalsBuffer>,
         Res<RenderClusteredDecals>,
         Option<Res<AtmosphereBuffer>>,
         Option<Res<AtmosphereSampler>>,
         Res<Bluenoise>,
+        Option<Res<RenderPhotometricProfiles>>,
+        Option<Res<PhotometricDescriptorsBuffer>>,
     ),
 ) {
     if let (
@@ -905,6 +928,30 @@ pub fn prepare_mesh_view_bind_groups(
                     ),
                     // `clustered_decal_sampler`
                     (7, render_view_decal_bind_group_entries.sampler),
+                ));
+            }
+
+            // Add the photometric bind group entries.
+            let photometric_bind_group_entries =
+                if let (Some(profiles), Some(buffer)) =
+                    (&render_photometric_profiles, &photometric_descriptors_buffer)
+                {
+                    RenderViewPhotometricBindGroupEntries::get(
+                        profiles,
+                        buffer,
+                        &images,
+                        &fallback_image,
+                        &render_device,
+                        &render_adapter,
+                    )
+                } else {
+                    None
+                };
+            if let Some(ref photometric_entries) = photometric_bind_group_entries {
+                entries_binding_array = entries_binding_array.extend_with_indices((
+                    (8, photometric_entries.descriptors.as_entire_binding()),
+                    (9, photometric_entries.texture_views.as_slice()),
+                    (10, photometric_entries.sampler),
                 ));
             }
 

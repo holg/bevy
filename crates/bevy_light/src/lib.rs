@@ -59,6 +59,10 @@ pub use directional_light::{
     update_directional_light_frusta, DirectionalLight, DirectionalLightShadowMap,
     DirectionalLightTexture, SunDisk,
 };
+mod color_temperature;
+pub use color_temperature::ColorTemperature;
+pub mod photometric;
+pub use photometric::{PhotometricLight, PhotometricPlugin, PhotometricProfile};
 /// Provides gizmo drawing for visualizing light positions.
 #[cfg(feature = "bevy_gizmos")]
 pub mod gizmos;
@@ -69,7 +73,7 @@ pub mod gizmos;
 pub mod prelude {
     #[doc(hidden)]
     pub use crate::{
-        light_consts, AmbientLight, DirectionalLight, EnvironmentMapLight,
+        light_consts, AmbientLight, ColorTemperature, DirectionalLight, EnvironmentMapLight,
         GeneratedEnvironmentMapLight, GlobalAmbientLight, LightProbe, PointLight, SpotLight,
     };
 

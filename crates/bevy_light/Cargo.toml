@@ -31,6 +31,8 @@ tracing = { version = "0.1", default-features = false }
 wgpu-types = { version = "28", default-features = false }
 half = "2.7.1"
 smallvec = { version = "1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+thiserror = { version = "2", default-features = false }
 
 [features]
 default = []

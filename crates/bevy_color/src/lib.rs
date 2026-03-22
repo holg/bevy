@@ -98,6 +98,8 @@ extern crate alloc;
 
 mod color;
 pub mod color_difference;
+/// Utilities for converting color temperature (Kelvin) to RGB colors.
+pub mod color_temperature;
 #[cfg(feature = "alloc")]
 mod color_gradient;
 mod color_ops;

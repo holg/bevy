@@ -772,6 +772,38 @@ fn point_light(
     }
 #endif
 
+#ifdef PHOTOMETRIC_LIGHTS
+    // Per-fragment photometric intensity lookup.
+    // Convert light-to-fragment direction to Type C (C-plane, gamma) coordinates
+    // in the luminaire's local frame, then sample the 2D intensity texture.
+    let phot_idx = ((*light).flags >> 16u) & 0xFFFFu;
+    if phot_idx != 0xFFFFu {
+        let desc = view_bindings::photometric_descriptors.data[phot_idx];
+        let inv_rot = mat3x3<f32>(
+            desc.inv_rot_col0.xyz,
+            desc.inv_rot_col1.xyz,
+            desc.inv_rot_col2.xyz,
+        );
+        // Direction from light to fragment in world space
+        let frag_dir = normalize(P - (*light).position_radius.xyz);
+        // Transform to luminaire local space
+        let local_dir = inv_rot * frag_dir;
+        // gamma = angle from nadir (downward = -Y in local space)
+        let gamma = acos(clamp(-local_dir.y, -1.0, 1.0));
+        // C-plane = azimuthal angle around Y axis
+        let c_angle = atan2(local_dir.x, local_dir.z);
+        // Map to UV: C wraps [0, 2pi] -> [0, 1], gamma [0, pi] -> [0, 1]
+        let uv = vec2<f32>(c_angle / (2.0 * PI) + 0.5, gamma / PI);
+        let phot_intensity = textureSampleLevel(
+            view_bindings::photometric_textures[desc.texture_index],
+            view_bindings::photometric_sampler,
+            uv,
+            0.0
+        ).r;
+        texture_sample *= phot_intensity;
+    }
+#endif
+
     return color_times_NdotL * (*light).color_inverse_square_range.rgb *
         rangeAttenuation * texture_sample;
 }

@@ -130,3 +130,23 @@ const VISIBILITY_RANGE_UNIFORM_BUFFER_SIZE: u32 = 64u;
 @group(1) @binding(6) var clustered_decal_textures: binding_array<texture_2d<f32>, 8u>;
 @group(1) @binding(7) var clustered_decal_sampler: sampler;
 #endif  // CLUSTERED_DECALS_ARE_USABLE
+
+#ifdef PHOTOMETRIC_LIGHTS
+struct PhotometricDescriptor {
+    inv_rot_col0: vec4<f32>,
+    inv_rot_col1: vec4<f32>,
+    inv_rot_col2: vec4<f32>,
+    texture_index: u32,
+    peak_candela: f32,
+    pad_a: f32,
+    pad_b: f32,
+};
+
+struct PhotometricDescriptors {
+    data: array<PhotometricDescriptor>,
+};
+
+@group(1) @binding(8) var<storage> photometric_descriptors: PhotometricDescriptors;
+@group(1) @binding(9) var photometric_textures: binding_array<texture_2d<f32>, 8u>;
+@group(1) @binding(10) var photometric_sampler: sampler;
+#endif  // PHOTOMETRIC_LIGHTS

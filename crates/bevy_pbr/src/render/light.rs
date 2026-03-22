@@ -1,6 +1,6 @@
 use crate::*;
 use alloc::sync::Arc;
-use bevy_asset::UntypedAssetId;
+use bevy_asset::{AssetId, UntypedAssetId};
 use bevy_camera::primitives::{
     face_index_to_name, CascadesFrusta, CubeMapFace, CubemapFrusta, Frustum, CUBE_MAP_FACES,
 };
@@ -20,10 +20,12 @@ use bevy_ecs::{
 use bevy_light::cascade::Cascade;
 use bevy_light::cluster::assign::{calculate_cluster_factors, ClusterableObjectType};
 use bevy_light::SunDisk;
+use bevy_asset::Assets;
 use bevy_light::{
     spot_light_clip_from_view, spot_light_world_from_view, AmbientLight, CascadeShadowConfig,
-    Cascades, DirectionalLight, DirectionalLightShadowMap, GlobalAmbientLight, PointLight,
-    PointLightShadowMap, ShadowFilteringMethod, SpotLight, VolumetricLight,
+    Cascades, ColorTemperature, DirectionalLight, DirectionalLightShadowMap, GlobalAmbientLight,
+    PhotometricLight, PhotometricProfile, PointLight, PointLightShadowMap, ShadowFilteringMethod,
+    SpotLight, VolumetricLight,
 };
 use bevy_material::{
     key::{ErasedMaterialPipelineKey, ErasedMeshPipelineKey},
@@ -66,6 +68,7 @@ use bevy_transform::{components::GlobalTransform, prelude::Transform};
 use bevy_utils::default;
 use core::{any::TypeId, array, hash::Hash, mem, ops::Range};
 use decal::clustered::RenderClusteredDecals;
+use photometric::RenderPhotometricProfiles;
 #[cfg(feature = "trace")]
 use tracing::info_span;
 use tracing::{error, warn};
@@ -88,6 +91,16 @@ pub struct ExtractedPointLight {
     pub soft_shadows_enabled: bool,
     /// whether this point light contributes diffuse light to lightmapped meshes
     pub affects_lightmapped_mesh_diffuse: bool,
+    /// Photometric profile data, if this light has a PhotometricLight component.
+    pub photometric: Option<ExtractedPhotometricData>,
+}
+
+/// Extracted photometric profile data for a single light.
+pub struct ExtractedPhotometricData {
+    /// Asset ID of the intensity map image.
+    pub image_id: AssetId<Image>,
+    /// Peak candela value for intensity scaling.
+    pub peak_candela: f32,
 }
 
 #[derive(Component, Debug)]
@@ -301,6 +314,8 @@ pub fn extract_lights(
                 &ViewVisibility,
                 &CubemapFrusta,
                 Option<&VolumetricLight>,
+                Option<&ColorTemperature>,
+                Option<&PhotometricLight>,
             ),
             Or<(
                 Changed<PointLight>,
@@ -309,6 +324,8 @@ pub fn extract_lights(
                 Changed<ViewVisibility>,
                 Changed<CubemapFrusta>,
                 Changed<VolumetricLight>,
+                Changed<ColorTemperature>,
+                Changed<PhotometricLight>,
             )>,
         >,
     >,
@@ -323,6 +340,8 @@ pub fn extract_lights(
                 &ViewVisibility,
                 &Frustum,
                 Option<&VolumetricLight>,
+                Option<&ColorTemperature>,
+                Option<&PhotometricLight>,
             ),
             Or<(
                 Changed<SpotLight>,
@@ -331,6 +350,8 @@ pub fn extract_lights(
                 Changed<ViewVisibility>,
                 Changed<Frustum>,
                 Changed<VolumetricLight>,
+                Changed<ColorTemperature>,
+                Changed<PhotometricLight>,
             )>,
         >,
     >,
@@ -350,6 +371,7 @@ pub fn extract_lights(
                 Option<&VolumetricLight>,
                 Has<OcclusionCulling>,
                 Option<&SunDisk>,
+                Option<&ColorTemperature>,
             ),
             (
                 Without<SpotLight>,
@@ -365,10 +387,12 @@ pub fn extract_lights(
                     Changed<VolumetricLight>,
                     Changed<OcclusionCulling>,
                     Changed<SunDisk>,
+                    Changed<ColorTemperature>,
                 )>,
             ),
         >,
     >,
+    photometric_profiles: Option<Extract<Res<Assets<PhotometricProfile>>>>,
     mapper: Extract<Query<RenderEntity>>,
     mut existing_render_cascades_visible_entities: Query<&mut RenderCascadesVisibleEntities>,
     mut existing_render_cubemap_visible_entities: Query<&mut RenderCubemapVisibleEntities>,
@@ -414,6 +438,8 @@ pub fn extract_lights(
         view_visibility,
         frusta,
         volumetric_light,
+        color_temperature,
+        photometric_light,
     ) in point_lights.iter()
     {
         seen_point_light_main_entities.insert(main_entity.into());
@@ -444,8 +470,20 @@ pub fn extract_lights(
             render_visible_mesh_entities.update_from(&mapper, &visible_mesh_entities.entities);
         }
 
+        let base_color: LinearRgba = point_light.color.into();
+        let color = if let Some(cct) = color_temperature {
+            let tint = cct.to_linear_rgba();
+            LinearRgba::new(
+                base_color.red * tint.red,
+                base_color.green * tint.green,
+                base_color.blue * tint.blue,
+                base_color.alpha,
+            )
+        } else {
+            base_color
+        };
         let extracted_point_light = ExtractedPointLight {
-            color: point_light.color.into(),
+            color,
             // NOTE: Map from luminous power in lumens to luminous intensity in lumens per steradian
             // for a point light. See https://google.github.io/filament/Filament.html#mjx-eqn-pointLightLuminousPower
             // for details.
@@ -468,6 +506,13 @@ pub fn extract_lights(
             soft_shadows_enabled: point_light.soft_shadows_enabled,
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
+            photometric: photometric_light.and_then(|pl| {
+                let profile = photometric_profiles.as_ref()?.get(pl.profile.id())?;
+                Some(ExtractedPhotometricData {
+                    image_id: profile.image.id(),
+                    peak_candela: profile.peak_candela,
+                })
+            }),
         };
         point_lights_values.push((
             render_entity,
@@ -491,6 +536,8 @@ pub fn extract_lights(
         view_visibility,
         frustum,
         volumetric_light,
+        color_temperature,
+        photometric_light,
     ) in spot_lights.iter()
     {
         seen_spot_light_main_entities.insert(main_entity.into());
@@ -514,11 +561,23 @@ pub fn extract_lights(
         let texel_size =
             2.0 * ops::tan(spot_light.outer_angle) / directional_light_shadow_map.size as f32;
 
+        let base_color: LinearRgba = spot_light.color.into();
+        let spot_color = if let Some(cct) = color_temperature {
+            let tint = cct.to_linear_rgba();
+            LinearRgba::new(
+                base_color.red * tint.red,
+                base_color.green * tint.green,
+                base_color.blue * tint.blue,
+                base_color.alpha,
+            )
+        } else {
+            base_color
+        };
         spot_lights_values.push((
             render_entity,
             (
                 ExtractedPointLight {
-                    color: spot_light.color.into(),
+                    color: spot_color,
                     // NOTE: Map from luminous power in lumens to luminous intensity in lumens per steradian
                     // for a point light. See https://google.github.io/filament/Filament.html#mjx-eqn-pointLightLuminousPower
                     // for details.
@@ -544,6 +603,13 @@ pub fn extract_lights(
                     soft_shadows_enabled: spot_light.soft_shadows_enabled,
                     #[cfg(not(feature = "experimental_pbr_pcss"))]
                     soft_shadows_enabled: false,
+                    photometric: photometric_light.and_then(|pl| {
+                        let profile = photometric_profiles.as_ref()?.get(pl.profile.id())?;
+                        Some(ExtractedPhotometricData {
+                            image_id: profile.image.id(),
+                            peak_candela: profile.peak_candela,
+                        })
+                    }),
                 },
                 render_visible_entities,
                 *frustum,
@@ -567,6 +633,7 @@ pub fn extract_lights(
         volumetric_light,
         occlusion_culling,
         sun_disk,
+        color_temperature,
     ) in &directional_lights
     {
         seen_directional_light_main_entities.insert(main_entity.into());
@@ -637,12 +704,24 @@ pub fn extract_lights(
             .entities
             .retain(|cascade_entity, _| all_cascades_seen.contains(cascade_entity));
 
+        let base_color: LinearRgba = directional_light.color.into();
+        let dir_color = if let Some(cct) = color_temperature {
+            let tint = cct.to_linear_rgba();
+            LinearRgba::new(
+                base_color.red * tint.red,
+                base_color.green * tint.green,
+                base_color.blue * tint.blue,
+                base_color.alpha,
+            )
+        } else {
+            base_color
+        };
         commands
             .get_entity(entity)
             .expect("Light entity wasn't synced.")
             .insert((
                 ExtractedDirectionalLight {
-                    color: directional_light.color.into(),
+                    color: dir_color,
                     illuminance: directional_light.illuminance,
                     transform: *transform,
                     volumetric: volumetric_light.is_some(),
@@ -855,9 +934,10 @@ pub fn prepare_lights(
     directional_lights: Query<(Entity, &MainEntity, &ExtractedDirectionalLight)>,
     mut light_view_entities: Query<&mut LightViewEntities>,
     sorted_cameras: Res<SortedCameras>,
-    (gpu_preprocessing_support, decals): (
+    (gpu_preprocessing_support, decals, mut render_photometric_profiles): (
         Res<GpuPreprocessingSupport>,
         Option<Res<RenderClusteredDecals>>,
+        Option<ResMut<RenderPhotometricProfiles>>,
     ),
 ) {
     let views_iter = views.iter();
@@ -869,6 +949,11 @@ pub fn prepare_lights(
     else {
         return;
     };
+
+    // Clear photometric profiles for this frame.
+    if let Some(ref mut profiles) = render_photometric_profiles {
+        profiles.clear();
+    }
 
     // Pre-calculate for PointLights
     let cube_face_rotations = CUBE_MAP_FACES
@@ -1003,7 +1088,7 @@ pub fn prepare_lights(
 
     global_clusterable_object_meta.gpu_clustered_lights.clear();
 
-    for (index, &(entity, _, light, _)) in point_lights.iter().enumerate() {
+    for (index, &(entity, _main_entity, light, _)) in point_lights.iter().enumerate() {
         let mut flags = PointLightFlags::NONE;
 
         // Lights are sorted, shadow enabled lights are first
@@ -1071,6 +1156,20 @@ pub fn prepare_lights(
             }
         };
 
+        // Pack photometric descriptor index into upper 16 bits of flags.
+        let mut flags_u32 = flags.bits();
+        if let Some(ref phot_data) = light.photometric {
+            if let Some(ref mut profiles) = render_photometric_profiles {
+                let inverse_rotation = light.transform.to_matrix().inverse();
+                let desc_idx = profiles.insert_raw(
+                    phot_data.image_id,
+                    inverse_rotation,
+                    phot_data.peak_candela,
+                );
+                flags_u32 |= (desc_idx & 0xFFFF) << 16;
+            }
+        }
+
         global_clusterable_object_meta
             .gpu_clustered_lights
             .add(GpuClusteredLight {
@@ -1082,7 +1181,7 @@ pub fn prepare_lights(
                     .xyz()
                     .extend(1.0 / (light.range * light.range)),
                 position_radius: light.transform.translation().extend(light.radius),
-                flags: flags.bits(),
+                flags: flags_u32,
                 shadow_depth_bias: light.shadow_depth_bias,
                 shadow_normal_bias: light.shadow_normal_bias,
                 shadow_map_near_z: light.shadow_map_near_z,
