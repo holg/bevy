@@ -774,16 +774,13 @@ fn point_light(
 
 #ifdef PHOTOMETRIC_LIGHTS
     // Per-fragment photometric intensity lookup.
-    // Convert light-to-fragment direction to Type C (C-plane, gamma) coordinates
-    // in the luminaire's local frame, then sample the 2D intensity texture.
+    // Descriptor packed as mat4x4: col0.xyz = inv_rot col0, col0.w = texture_index
+    // col1.xyz = inv_rot col1, col1.w = peak_candela, col2.xyz = inv_rot col2
     let phot_idx = ((*light).flags >> 16u) & 0xFFFFu;
     if phot_idx != 0xFFFFu {
-        let desc = view_bindings::photometric_descriptors.data[phot_idx];
-        let inv_rot = mat3x3<f32>(
-            desc.inv_rot_col0.xyz,
-            desc.inv_rot_col1.xyz,
-            desc.inv_rot_col2.xyz,
-        );
+        let desc = view_bindings::photometric_descriptors[phot_idx];
+        let inv_rot = mat3x3<f32>(desc[0].xyz, desc[1].xyz, desc[2].xyz);
+        let tex_idx = u32(desc[0].w);
         // Direction from light to fragment in world space
         let frag_dir = normalize(P - (*light).position_radius.xyz);
         // Transform to luminaire local space
@@ -795,7 +792,7 @@ fn point_light(
         // Map to UV: C wraps [0, 2pi] -> [0, 1], gamma [0, pi] -> [0, 1]
         let uv = vec2<f32>(c_angle / (2.0 * PI) + 0.5, gamma / PI);
         let phot_intensity = textureSampleLevel(
-            view_bindings::photometric_textures[desc.texture_index],
+            view_bindings::photometric_textures[tex_idx],
             view_bindings::photometric_sampler,
             uv,
             0.0

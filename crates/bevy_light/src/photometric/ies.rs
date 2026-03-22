@@ -286,6 +286,15 @@ fn build_profile(
 
 /// Sample intensity at (gamma, c_angle) from Type C data with interpolation.
 fn sample_type_c(data: &IesData, gamma_deg: f32, c_deg: f32) -> f32 {
+    // If gamma is outside the measured range, intensity is zero
+    if !data.vertical_angles.is_empty() {
+        let max_gamma = *data.vertical_angles.last().unwrap();
+        let min_gamma = data.vertical_angles[0];
+        if gamma_deg > max_gamma || gamma_deg < min_gamma {
+            return 0.0;
+        }
+    }
+
     // Expand symmetry: determine the effective C-plane angle
     let c_effective = resolve_c_symmetry(&data.horizontal_angles, c_deg);
 

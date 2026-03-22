@@ -14,14 +14,14 @@ use bevy_ecs::{
     system::{Res, ResMut},
 };
 use bevy_image::Image;
-use bevy_math::{Mat4, Vec4};
+use bevy_math::{Mat4, Vec4, Vec4Swizzles};
 use bevy_platform::collections::HashMap;
 use bevy_ecs::schedule::IntoScheduleConfigs as _;
 use bevy_render::{
     render_asset::RenderAssets,
     render_resource::{
         binding_types, BindGroupLayoutEntryBuilder, Buffer, BufferUsages, RawBufferVec, Sampler,
-        SamplerBindingType, ShaderType, TextureSampleType, TextureView,
+        SamplerBindingType, TextureSampleType, TextureView,
     },
     renderer::{RenderAdapter, RenderDevice, RenderQueue},
     settings::WgpuFeatures,
@@ -29,29 +29,20 @@ use bevy_render::{
     texture::{FallbackImage, GpuImage},
     GpuResourceAppExt, Render, RenderApp, RenderSystems,
 };
-use bytemuck::{Pod, Zeroable};
 
 use crate::binding_arrays_are_usable;
 
-/// GPU-side descriptor for a photometric profile, containing the inverse
-/// rotation matrix and texture index needed for per-fragment angular sampling.
-#[derive(Clone, Copy, Default, ShaderType, Pod, Zeroable)]
-#[repr(C)]
-pub struct GpuPhotometricDescriptor {
-    /// Column 0 of the inverse rotation matrix (xyz), padded to vec4.
-    pub inv_rot_col0: Vec4,
-    /// Column 1 of the inverse rotation matrix (xyz), padded to vec4.
-    pub inv_rot_col1: Vec4,
-    /// Column 2 of the inverse rotation matrix (xyz), padded to vec4.
-    pub inv_rot_col2: Vec4,
-    /// Index into the photometric texture binding array.
-    pub texture_index: u32,
-    /// Peak candela value for intensity scaling.
-    pub peak_candela: f32,
-    /// Padding for 16-byte alignment.
-    pub pad_a: f32,
-    pub pad_b: f32,
-}
+/// GPU-side descriptor for a photometric profile, packed as a Mat4.
+///
+/// Layout:
+/// - col0.xyz = inverse rotation column 0, col0.w = texture_index (as f32)
+/// - col1.xyz = inverse rotation column 1, col1.w = peak_candela
+/// - col2.xyz = inverse rotation column 2, col2.w = 0.0
+/// - col3 = unused (0.0)
+///
+/// Using Mat4 avoids custom struct names that trigger naga_oil
+/// composable module identifier substitution rules.
+pub type GpuPhotometricDescriptor = Mat4;
 
 /// Render-world resource that collects photometric profile data for all
 /// lights in the scene.
@@ -112,15 +103,17 @@ impl RenderPhotometricProfiles {
     ) -> u32 {
         let texture_index = self.get_or_insert_image(image_id);
 
-        let descriptor = GpuPhotometricDescriptor {
-            inv_rot_col0: inverse_rotation.col(0),
-            inv_rot_col1: inverse_rotation.col(1),
-            inv_rot_col2: inverse_rotation.col(2),
-            texture_index,
-            peak_candela,
-            pad_a: 0.0,
-            pad_b: 0.0,
-        };
+        // Pack into Mat4:
+        // col0.xyz = inv_rot col0, col0.w = texture_index
+        // col1.xyz = inv_rot col1, col1.w = peak_candela
+        // col2.xyz = inv_rot col2, col2.w = 0
+        // col3 = 0
+        let descriptor = Mat4::from_cols(
+            inverse_rotation.col(0).xyz().extend(texture_index as f32),
+            inverse_rotation.col(1).xyz().extend(peak_candela),
+            inverse_rotation.col(2).xyz().extend(0.0),
+            Vec4::ZERO,
+        );
 
         let index = self.descriptors.len() as u32;
         self.descriptors.push(descriptor);
@@ -128,9 +121,9 @@ impl RenderPhotometricProfiles {
     }
 }
 
-/// GPU buffer holding photometric descriptors.
+/// GPU buffer holding photometric descriptors (packed as Mat4).
 #[derive(Resource, Deref, DerefMut)]
-pub struct PhotometricDescriptorsBuffer(RawBufferVec<GpuPhotometricDescriptor>);
+pub struct PhotometricDescriptorsBuffer(RawBufferVec<Mat4>);
 
 impl Default for PhotometricDescriptorsBuffer {
     fn default() -> Self {
@@ -153,7 +146,7 @@ pub fn upload_photometric_descriptors(
 
     // Ensure non-empty for binding.
     if buffer.is_empty() {
-        buffer.push(GpuPhotometricDescriptor::default());
+        buffer.push(Mat4::ZERO);
     }
 
     buffer.write_buffer(&render_device, &render_queue);
@@ -179,8 +172,8 @@ pub(crate) fn get_bind_group_layout_entries(
     }
 
     Some([
-        // `photometric_descriptors`
-        binding_types::storage_buffer_read_only::<GpuPhotometricDescriptor>(false),
+        // `photometric_descriptors` — packed as array<mat4x4<f32>>
+        binding_types::storage_buffer_read_only::<Mat4>(false),
         // `photometric_textures`
         binding_types::texture_2d(TextureSampleType::Float { filterable: true })
             .count(NonZero::<u32>::new(max_photometric_textures(render_device)).unwrap()),

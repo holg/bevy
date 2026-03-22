@@ -203,16 +203,30 @@ fn parse_ldt(text: &str) -> Result<LdtData, LdtLoaderError> {
         .map(|i| parse_ldt_float(lines[i]))
         .collect::<Result<_, _>>()?;
 
-    // Then intensity data: num_c_planes blocks, each with num_gamma values
+    // Then intensity data. The number of data planes depends on symmetry:
+    // Isym=0: all num_c_planes have data
+    // Isym=1: only 1 plane (full rotational symmetry)
+    // Isym=2,3: data for C0-C180 only (remaining mirrored)
+    // Isym=4: data for C0-C90 only (remaining mirrored)
+    let num_data_planes = match isym as u32 {
+        1 => 1,
+        2 | 3 => c_angles.iter().filter(|&&a| a <= 180.0).count(),
+        4 => c_angles.iter().filter(|&&a| a <= 90.0).count(),
+        _ => num_c_planes, // Isym=0 or unknown
+    };
+
     let intensity_start = gamma_end;
-    let total_intensities = num_c_planes * num_gamma;
+    let total_intensities = num_data_planes * num_gamma;
 
     if intensity_start + total_intensities > lines.len() {
-        return Err(LdtLoaderError::Parse("File too short for intensity data".into()));
+        return Err(LdtLoaderError::Parse(format!(
+            "File too short for intensity data: need {} lines from offset {}, file has {} lines (isym={}, data_planes={}, gamma={})",
+            total_intensities, intensity_start, lines.len(), isym, num_data_planes, num_gamma
+        )));
     }
 
-    let mut intensities = Vec::with_capacity(num_c_planes);
-    for c in 0..num_c_planes {
+    let mut intensities = Vec::with_capacity(num_data_planes);
+    for c in 0..num_data_planes {
         let block_start = intensity_start + c * num_gamma;
         let row: Vec<f32> = (block_start..block_start + num_gamma)
             .map(|i| {
@@ -223,13 +237,16 @@ fn parse_ldt(text: &str) -> Result<LdtData, LdtLoaderError> {
         intensities.push(row);
     }
 
+    // Store only the C-plane angles that have data
+    let data_c_angles = c_angles[..num_data_planes].to_vec();
+
     Ok(LdtData {
         isym: isym as u32,
         num_c_planes,
         delta_c,
         num_gamma,
         delta_gamma,
-        c_angles,
+        c_angles: data_c_angles,
         gamma_angles,
         intensities,
         total_flux,
@@ -317,6 +334,15 @@ fn build_profile(
 
 /// Sample intensity from LDT data with symmetry expansion and interpolation.
 fn sample_ldt(data: &LdtData, c_deg: f32, gamma_deg: f32) -> f32 {
+    // If gamma is outside the measured range, intensity is zero
+    if !data.gamma_angles.is_empty() {
+        let max_gamma = *data.gamma_angles.last().unwrap();
+        let min_gamma = data.gamma_angles[0];
+        if gamma_deg > max_gamma || gamma_deg < min_gamma {
+            return 0.0;
+        }
+    }
+
     // Resolve symmetry to get effective C-plane angle
     let c_effective = resolve_ldt_symmetry(data.isym, c_deg);
 

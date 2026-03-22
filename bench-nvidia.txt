@@ -1,0 +1,27 @@
+=== Running bistro_bench for 5 minutes ===
+  --- FPS ---
+  Samples: 98
+  Avg:     117.9
+  Min:     60
+  Max:     279.4
+  --- RAM (Working Set) ---
+  Avg:     946 MB
+  Peak:    949 MB
+  --- VRAM (Dedicated GPU) ---
+  Avg:     860 MB
+  Peak:    861 MB
+
+=== Running bistro_bench-fix for 5 minutes ===
+  --- FPS ---
+  Samples: 98
+  Avg:     216.7
+  Min:     164.5
+  Max:     278.6
+  --- RAM (Working Set) ---
+  Avg:     947 MB
+  Peak:    950 MB
+  --- VRAM (Dedicated GPU) ---
+  Avg:     861 MB
+  Peak:    861 MB
+
+=== Done ===

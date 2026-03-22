@@ -1,0 +1,54 @@
+[2m2026-03-20T08:20:32.987479Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "macOS 26.3.1", kernel: "25.3.0", cpu: "Apple M2 Max", core_count: "12", memory: "96.0 GiB" }
+[2m2026-03-20T08:20:32.988158Z[0m [32m INFO[0m [2mbevy_app::terminal_ctrl_c_handler[0m[2m:[0m Skipping installing `Ctrl+C` handler as one was already installed. Please call `TerminalCtrlCHandlerPlugin::gracefully_exit` in your own `Ctrl+C` handler if you want Bevy to gracefully exit on `Ctrl+C`.
+[2m2026-03-20T08:20:33.039589Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "Apple M2 Max", vendor: 0, device: 0, device_type: IntegratedGpu, device_pci_bus_id: "", driver: "", driver_info: "", backend: Metal, subgroup_min_size: 4, subgroup_max_size: 64, transient_saves_memory: true }
+[2m2026-03-20T08:20:33.642610Z[0m [32m INFO[0m [2mbevy_render::batching::gpu_preprocessing[0m[2m:[0m GPU preprocessing is fully supported on this device.
+[2m2026-03-20T08:20:33.642798Z[0m [32m INFO[0m [2mbevy_pbr::cluster[0m[2m:[0m GPU clustering is supported on this device.
+[2m2026-03-20T08:20:33.676718Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window Bistro Benchmark (63v0)
+[2m2026-03-20T08:20:36.874797Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   59.221824   (avg 73.198924)
+[2m2026-03-20T08:20:36.874839Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   16.885667ms (avg 14.869764ms)
+[2m2026-03-20T08:20:36.874846Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:36.874852Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 175.000000
+[2m2026-03-20T08:20:39.874014Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   60.826191   (avg 72.231915)
+[2m2026-03-20T08:20:39.874068Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   16.519888ms (avg 15.275611ms)
+[2m2026-03-20T08:20:39.874075Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:39.874080Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 374.000000
+[2m2026-03-20T08:20:42.870394Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :  102.778398   (avg 97.312796)
+[2m2026-03-20T08:20:42.870462Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :    9.803475ms (avg 10.616611ms)
+[2m2026-03-20T08:20:42.870477Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:42.870484Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 610.000000
+[2m2026-03-20T08:20:45.871259Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :  102.071707   (avg 91.742154)
+[2m2026-03-20T08:20:45.871354Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   10.039833ms (avg 11.181665ms)
+[2m2026-03-20T08:20:45.871368Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:45.871375Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 884.000000
+[2m2026-03-20T08:20:48.874555Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   64.216671   (avg 117.844624)
+[2m2026-03-20T08:20:48.874614Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   15.573826ms (avg 9.069892ms)
+[2m2026-03-20T08:20:48.874624Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:48.874629Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 1200.000000
+[2m2026-03-20T08:20:51.875664Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   56.211092   (avg 122.024517)
+[2m2026-03-20T08:20:51.875749Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   17.790083ms (avg 9.680318ms)
+[2m2026-03-20T08:20:51.875776Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:51.875782Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 1528.000000
+[2m2026-03-20T08:20:54.874764Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   88.702084   (avg 102.262830)
+[2m2026-03-20T08:20:54.874809Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   12.260078ms (avg 12.815368ms)
+[2m2026-03-20T08:20:54.874816Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:54.874821Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 1775.000000
+[2m2026-03-20T08:20:57.868414Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   96.649850   (avg 94.678050)
+[2m2026-03-20T08:20:57.868466Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   10.408690ms (avg 12.031817ms)
+[2m2026-03-20T08:20:57.868473Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:20:57.868479Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 2006.000000
+[2m2026-03-20T08:21:00.867127Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   93.592575   (avg 96.788935)
+[2m2026-03-20T08:21:00.867169Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   10.765041ms (avg 10.564940ms)
+[2m2026-03-20T08:21:00.867175Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:21:00.867179Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 2295.000000
+[2m2026-03-20T08:21:03.868027Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   96.624220   (avg 91.085013)
+[2m2026-03-20T08:21:03.868080Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   10.368747ms (avg 12.862284ms)
+[2m2026-03-20T08:21:03.868086Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:21:03.868091Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 2538.000000
+[2m2026-03-20T08:21:06.871230Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :   97.509992   (avg 92.637195)
+[2m2026-03-20T08:21:06.871284Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :   10.329513ms (avg 13.027533ms)
+[2m2026-03-20T08:21:06.871290Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:21:06.871295Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 2765.000000
+[2m2026-03-20T08:21:09.871003Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m fps               :  113.714963   (avg 128.968482)
+[2m2026-03-20T08:21:09.871050Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_time        :    8.807484ms (avg 9.913395ms)
+[2m2026-03-20T08:21:09.871058Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m started_load_count:  118.000000   (avg 118.000000)
+[2m2026-03-20T08:21:09.871064Z[0m [32m INFO[0m [2mbevy_diagnostic[0m[2m:[0m frame_count       : 3045.000000

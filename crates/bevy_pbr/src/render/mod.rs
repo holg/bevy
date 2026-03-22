@@ -16,8 +16,7 @@ pub use mesh_bindings::MeshLayouts;
 pub use mesh_view_bindings::*;
 pub use morph::*;
 pub use photometric::{
-    GpuPhotometricDescriptor, PhotometricDescriptorsBuffer, PhotometricRenderPlugin,
-    RenderPhotometricProfiles, RenderViewPhotometricBindGroupEntries,
-    upload_photometric_descriptors,
+    PhotometricDescriptorsBuffer, PhotometricRenderPlugin, RenderPhotometricProfiles,
+    RenderViewPhotometricBindGroupEntries, upload_photometric_descriptors,
 };
 pub use skin::{extract_skins, prepare_skins, skins_use_uniform_buffers, SkinUniforms, MAX_JOINTS};
