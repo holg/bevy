@@ -12,6 +12,8 @@ bevy = { path = "../..", default-features = true, features = [
     "pbr_light_textures",
 ] }
 
+half = "2.7"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bevy = { path = "../..", default-features = true, features = [
     "pbr_photometric_lights",

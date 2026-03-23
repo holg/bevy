@@ -195,14 +195,22 @@ fn rebuild_scene(
     for e in &old { commands.entity(e).despawn(); }
 
     let ldt_label = ldt_lib.profiles[ldt_lib.current].0.clone();
-    let ldt_path = ldt_lib.profiles[ldt_lib.current].1.clone();
-    let profile = asset_server.load::<bevy::light::PhotometricProfile>(ldt_path.clone());
     let warm = Color::srgb(1.0, 0.72, 0.42);
 
     // Parse current embedded LDT (works on both native and WASM)
     let current_ldt_bytes = EMBEDDED_LDTS[ldt_lib.current].bytes;
     let current_ldt_text = String::from_utf8_lossy(current_ldt_bytes);
     let current_ldt_parsed = parse_ldt(&current_ldt_text).ok();
+
+    // Create photometric profile from embedded data (no asset server fetch)
+    let profile = if let Some(ref ldt) = current_ldt_parsed {
+        let profile_asset = create_profile_from_ldt(ldt, &mut images);
+        asset_server.add(profile_asset)
+    } else {
+        // Fallback: try asset server load
+        let ldt_path = ldt_lib.profiles[ldt_lib.current].1.clone();
+        asset_server.load::<bevy::light::PhotometricProfile>(ldt_path)
+    };
 
     // Generate cubemap cookie from LDT
     let cookie_image = if *mode == RenderMode::CubemapCookie || *mode == RenderMode::SideBySide {
@@ -728,6 +736,57 @@ fn update_fps(
                 *text = Text::new(format!("FPS: {avg:.0}"));
             }
         }
+    }
+}
+
+/// Create a PhotometricProfile from parsed LDT data (bypasses asset server).
+fn create_profile_from_ldt(
+    ldt: &LdtData,
+    images: &mut ResMut<Assets<Image>>,
+) -> bevy::light::PhotometricProfile {
+    let c_steps = 361usize;
+    let g_steps = 181usize;
+
+    let mut grid = vec![0.0f32; c_steps * g_steps];
+    let mut peak = 0.0f32;
+
+    for c_idx in 0..c_steps {
+        let c_angle = (c_idx as f32 / (c_steps - 1) as f32) * 360.0;
+        for g_idx in 0..g_steps {
+            let g_angle = (g_idx as f32 / (g_steps - 1) as f32) * 180.0;
+            let intensity = sample_ldt(ldt, c_angle, g_angle);
+            grid[c_idx * g_steps + g_idx] = intensity;
+            if intensity > peak { peak = intensity; }
+        }
+    }
+
+    if peak > 0.0 {
+        for v in &mut grid { *v /= peak; }
+    }
+
+    let half_data: Vec<u8> = grid.iter()
+        .flat_map(|&v| half::f16::from_f32(v).to_le_bytes())
+        .collect();
+
+    let image = Image::new(
+        bevy::render::render_resource::Extent3d {
+            width: c_steps as u32,
+            height: g_steps as u32,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        half_data,
+        bevy::render::render_resource::TextureFormat::R16Float,
+        RenderAssetUsages::default(),
+    );
+
+    let image_handle = images.add(image);
+
+    bevy::light::PhotometricProfile {
+        image: image_handle,
+        peak_candela: peak,
+        total_lumens: if ldt.total_flux > 0.0 { Some(ldt.total_flux) } else { None },
+        dimensions_m: None,
     }
 }
 
