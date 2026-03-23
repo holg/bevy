@@ -70,8 +70,9 @@ impl AssetLoader for LdtLoader {
 }
 
 /// Parsed EULUMDAT file data.
+/// Parsed EULUMDAT file data, available for CPU-side sampling.
 #[allow(dead_code)]
-struct LdtData {
+pub struct LdtData {
     /// Symmetry indicator (Isym):
     /// 0 = no symmetry (full 0-360)
     /// 1 = full rotational symmetry (single C-plane)
@@ -105,7 +106,8 @@ struct LdtData {
 ///
 /// The EULUMDAT format is a fixed-field text format where each value
 /// occupies one line. The format is publicly documented.
-fn parse_ldt(text: &str) -> Result<LdtData, LdtLoaderError> {
+/// Parse an EULUMDAT file from text. Public for CPU-side sampling.
+pub fn parse_ldt(text: &str) -> Result<LdtData, LdtLoaderError> {
     let lines: Vec<&str> = text.lines().collect();
 
     if lines.len() < 42 {
@@ -332,8 +334,9 @@ fn build_profile(
     })
 }
 
-/// Sample intensity from LDT data with symmetry expansion and interpolation.
-fn sample_ldt(data: &LdtData, c_deg: f32, gamma_deg: f32) -> f32 {
+/// Sample intensity at (C, gamma) from LDT data with symmetry and interpolation.
+/// Public for CPU-side illuminance computation (e.g., heatmaps).
+pub fn sample_ldt(data: &LdtData, c_deg: f32, gamma_deg: f32) -> f32 {
     // Clamp gamma to measured range. Beyond max_gamma, use the edge value
     // (will be 0 if the last measured value is 0, which is typical for downlights).
     let gamma_clamped = gamma_deg.clamp(0.0, 180.0);

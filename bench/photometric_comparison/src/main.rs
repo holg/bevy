@@ -16,7 +16,8 @@ use std::f32::consts::PI;
 
 use bevy::{
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    light::{ColorTemperature, PhotometricLight, PhotometricPlugin},
+    light::{ColorTemperature, PhotometricLight, PhotometricPlugin,
+            photometric::{LdtData, parse_ldt, sample_ldt}},
     prelude::*,
 };
 
@@ -411,8 +412,13 @@ fn spawn_road_strip(
 
     // --- Ground heatmap (H toggle) ---
     if vis.heatmap {
-        // Collect light positions for illuminance computation
-        let mut light_positions: Vec<Vec3> = Vec::new();
+        // Parse LDT for native mode sampling
+        let ldt_bytes = include_bytes!("../../../assets/photometric/acme_road.ldt");
+        let ldt_text = String::from_utf8_lossy(ldt_bytes);
+        let ldt_data = parse_ldt(&ldt_text).ok();
+
+        // Collect luminaire positions
+        let mut light_positions: Vec<(Vec3, f32)> = Vec::new(); // (pos, side)
         let mut lpz = -ROAD_LENGTH / 2.0 + POLE_SPACING / 2.0;
         let mut lpi = 0u32;
         while lpz < ROAD_LENGTH / 2.0 {
@@ -420,36 +426,66 @@ fn spawn_road_strip(
             let lpx = x_offset + lside * (rw / 2.0 + 0.5);
             let ltc = -lside;
             let larm = 1.5;
-            light_positions.push(Vec3::new(lpx + ltc * larm, MOUNTING_HEIGHT, lpz));
+            light_positions.push((Vec3::new(lpx + ltc * larm, MOUNTING_HEIGHT, lpz), lside));
             lpz += POLE_SPACING;
             lpi += 1;
         }
 
-        // Grid resolution
-        let grid_x = 30; // across road
-        let grid_z = 60; // along road
-        let cell_w = (rw + 2.0 * SIDEWALK_WIDTH) / grid_x as f32;
-        let cell_h = ROAD_LENGTH / grid_z as f32;
+        let grid_x = 30usize;
+        let grid_z = 60usize;
         let total_w = rw + 2.0 * SIDEWALK_WIDTH;
+        let cell_w = total_w / grid_x as f32;
+        let cell_h = ROAD_LENGTH / grid_z as f32;
 
-        // Compute illuminance at each grid point and find max
         let mut lux_grid = vec![0.0f32; grid_x * grid_z];
         for zi in 0..grid_z {
             for xi in 0..grid_x {
                 let gx = x_offset - total_w / 2.0 + (xi as f32 + 0.5) * cell_w;
                 let gz = -ROAD_LENGTH / 2.0 + (zi as f32 + 0.5) * cell_h;
-                let ground_pt = Vec3::new(gx, 0.01, gz);
+                let ground_pt = Vec3::new(gx, 0.0, gz);
 
                 let mut total_lux = 0.0f32;
-                for lp in &light_positions {
+                for (lp, _side) in &light_positions {
                     let to_light = *lp - ground_pt;
-                    let dist_sq = to_light.length_squared();
-                    if dist_sq < 0.1 { continue; }
-                    // cos(theta) = vertical component / distance
-                    let cos_theta = to_light.y / to_light.length();
-                    if cos_theta <= 0.0 { continue; }
-                    // E = I * cos(theta) / d^2  (simplified, uniform I)
-                    total_lux += cos_theta / dist_sq * 10000.0;
+                    let dist = to_light.length();
+                    if dist < 0.1 { continue; }
+                    let dist_sq = dist * dist;
+                    let cos_incidence = to_light.y / dist;
+                    if cos_incidence <= 0.0 { continue; }
+
+                    let intensity = match mode {
+                        RenderMode::Native => {
+                            // Sample actual LDT angular distribution
+                            if let Some(ref ldt) = ldt_data {
+                                let dir = -to_light / dist; // light-to-ground direction
+                                // gamma = angle from nadir (downward = -Y)
+                                let gamma = (-dir.y).acos().to_degrees();
+                                // C = azimuthal angle
+                                let c = dir.x.atan2(dir.z).to_degrees();
+                                let c = if c < 0.0 { c + 360.0 } else { c };
+                                sample_ldt(ldt, c, gamma) as f32 * 100.0
+                            } else {
+                                10000.0 // fallback
+                            }
+                        }
+                        RenderMode::MultiSpot => {
+                            // Approximate 5-spot contribution
+                            let dir = -to_light / dist;
+                            let down_dot = -dir.y; // alignment with straight down
+                            let along_road = dir.z.abs();
+                            // Crude multi-spot envelope
+                            let spot_main = (down_dot * 2.0).clamp(0.0, 1.0).powi(3);
+                            let spot_throw = (along_road * 1.5).clamp(0.0, 1.0).powi(2);
+                            (spot_main * 5000.0 + spot_throw * 8000.0)
+                        }
+                        RenderMode::Plain | RenderMode::SideBySide => {
+                            // Uniform point light
+                            10000.0
+                        }
+                    };
+
+                    // E = I * cos(incidence) / d²
+                    total_lux += intensity * cos_incidence / dist_sq;
                 }
                 lux_grid[zi * grid_x + xi] = total_lux;
             }
@@ -457,11 +493,10 @@ fn spawn_road_strip(
 
         let max_lux = lux_grid.iter().cloned().fold(0.0f32, f32::max).max(0.001);
 
-        // Spawn colored cells
         for zi in 0..grid_z {
             for xi in 0..grid_x {
                 let val = (lux_grid[zi * grid_x + xi] / max_lux).clamp(0.0, 1.0);
-                if val < 0.01 { continue; } // skip very dark cells
+                if val < 0.01 { continue; }
 
                 let (r, g, b) = heatmap_color(val);
                 let gx = x_offset - total_w / 2.0 + (xi as f32 + 0.5) * cell_w;
@@ -473,7 +508,6 @@ fn spawn_road_strip(
                     unlit: true,
                     ..default()
                 });
-
                 commands.spawn((
                     Mesh3d(meshes.add(Plane3d::default().mesh().size(cell_w * 0.95, cell_h * 0.95))),
                     MeshMaterial3d(mat),

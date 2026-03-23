@@ -15,7 +15,7 @@ mod profile;
 
 pub use component::PhotometricLight;
 pub use ies::IesLoader;
-pub use ldt::LdtLoader;
+pub use ldt::{LdtData, LdtLoader, parse_ldt, sample_ldt};
 pub use profile::PhotometricProfile;
 
 use bevy_app::{App, Plugin};
