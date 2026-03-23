@@ -169,13 +169,10 @@ fn handle_input(
     // Cycle LDT profiles with [ and ]
     if keys.just_pressed(KeyCode::BracketLeft) {
         let len = ldt_lib.profiles.len();
-        ldt_lib.current = (ldt_lib.current + len - 1) % len;
-        // Force rebuild by toggling vis (hack — ideally we'd have a separate changed detection)
-        vis.set_changed();
+        ldt_lib.current = (len + ldt_lib.current - 1) % len;
     }
     if keys.just_pressed(KeyCode::BracketRight) {
         ldt_lib.current = (ldt_lib.current + 1) % ldt_lib.profiles.len();
-        vis.set_changed();
     }
 }
 
@@ -574,8 +571,11 @@ fn spawn_road_strip(
             lpi += 1;
         }
 
-        let grid_x = 30usize;
-        let grid_z = 60usize;
+        // Lower resolution on WASM for performance (1800 entities is too slow)
+        #[cfg(target_arch = "wasm32")]
+        let (grid_x, grid_z) = (15usize, 30usize);
+        #[cfg(not(target_arch = "wasm32"))]
+        let (grid_x, grid_z) = (30usize, 60usize);
         let total_w = rw + 2.0 * SIDEWALK_WIDTH;
         let cell_w = total_w / grid_x as f32;
         let cell_h = ROAD_LENGTH / grid_z as f32;
