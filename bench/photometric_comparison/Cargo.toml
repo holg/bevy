@@ -12,7 +12,8 @@ bevy = { path = "../..", default-features = true, features = [
     "pbr_light_textures",
 ] }
 
-# GLDF/L3D support
+# GLDF/L3D support (native only — tokio doesn't build for wasm)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gldf-rs = { path = "../../../gldf-rs/crates/gldf-rs-lib" }
 gldf-bevy = { path = "../../../gldf-rs/crates/gldf-bevy" }
 

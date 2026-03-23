@@ -23,8 +23,10 @@ use bevy::{
     prelude::*,
     asset::RenderAssetUsages,
 };
-// gldf-rs available for future L3D model loading
-// use gldf_rs::{GldfProduct, get_first_l3d_with_ldt};
+// gldf-rs available for future L3D model loading (native only)
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(unused_imports)]
+use gldf_rs::{GldfProduct, get_first_l3d_with_ldt};
 
 const ROAD_LENGTH: f32 = 60.0;
 const LANE_WIDTH: f32 = 3.5;
