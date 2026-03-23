@@ -720,9 +720,8 @@ fn spawn_road_strip(
                 let gz = -ROAD_LENGTH / 2.0 + (zi as f32 + 0.5) * cell_h;
 
                 let mat = materials.add(StandardMaterial {
-                    base_color: Color::srgba(r, g, b, 0.6),
-                    alpha_mode: AlphaMode::Blend,
-                    unlit: true,
+                    base_color: Color::srgb(r, g, b),
+                    emissive: LinearRgba::new(r * 2.0, g * 2.0, b * 2.0, 1.0),
                     ..default()
                 });
                 commands.spawn((
