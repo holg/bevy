@@ -641,30 +641,35 @@ fn spawn_road_strip(
                             }
                         }
                         RenderMode::MultiSpot => {
-                            // Approximate the multi-spot workaround:
-                            // 5 spots sample the LDT at their fixed directions,
-                            // each with a cone falloff. The result is a discretized
-                            // approximation of the real distribution.
+                            // Simulate the 5-spot workaround as actually spawned:
+                            // Each spot has a direction and cone. Compute contribution
+                            // from each using spot attenuation (Filament formula).
                             if let Some(ref ldt) = ldt_data {
-                                let down_dot = -dir.y;
-                                // Main downward spot (samples LDT at nadir area)
-                                let nadir_val = sample_ldt(ldt, 0.0, 0.0) as f32;
-                                let spot_down = (down_dot * 2.0).clamp(0.0, 1.0).powi(3) * nadir_val;
-                                // Forward throw spot (samples LDT at C=0, gamma~60)
-                                let fwd_val = sample_ldt(ldt, 0.0, 60.0) as f32;
-                                let fwd_align = dir.z.max(0.0);
-                                let spot_fwd = (fwd_align * 1.5).clamp(0.0, 1.0).powi(2) * fwd_val;
-                                // Backward throw
-                                let bwd_val = sample_ldt(ldt, 180.0, 60.0) as f32;
-                                let bwd_align = (-dir.z).max(0.0);
-                                let spot_bwd = (bwd_align * 1.5).clamp(0.0, 1.0).powi(2) * bwd_val * 0.5;
-                                // Cross-road
-                                let cross_val = sample_ldt(ldt, 90.0, 60.0) as f32;
-                                let cross_align = dir.x.abs();
-                                let spot_cross = (cross_align * 1.5).clamp(0.0, 1.0).powi(2) * cross_val * 0.7;
-                                // Ambient fill
-                                let ambient = nadir_val * 0.3;
-                                (spot_down + spot_fwd + spot_bwd + spot_cross + ambient) * 0.3
+                                // Spot definitions: (direction, outer_angle, inner_angle, intensity_frac)
+                                let spots: [(Vec3, f32, f32, f32); 5] = [
+                                    (Vec3::NEG_Y, 1.1, 0.4, 0.25),                          // downward
+                                    (Vec3::new(0.0, -5.0, 8.0).normalize(), 1.2, 0.3, 0.30), // road throw
+                                    (Vec3::new(0.0, -5.0, -5.0).normalize(), 1.0, 0.3, 0.15),// opposite
+                                    (Vec3::new(-_side * 5.0, -6.0, 0.0).normalize(), 0.9, 0.3, 0.20), // cross
+                                    (Vec3::NEG_Y, std::f32::consts::PI, 0.0, 0.10),         // ambient fill
+                                ];
+                                let mut total = 0.0f32;
+                                for (spot_dir, outer, inner, frac) in &spots {
+                                    let cd = dir.dot(*spot_dir);
+                                    let cos_outer = outer.cos();
+                                    let cos_inner = inner.cos();
+                                    let spot_scale = 1.0 / (cos_inner - cos_outer).max(1e-4);
+                                    let spot_offset = -cos_outer * spot_scale;
+                                    let atten = (cd * spot_scale + spot_offset).clamp(0.0, 1.0);
+                                    let atten = atten * atten;
+                                    // Sample LDT at the spot's central direction for base intensity
+                                    let spot_gamma = (-spot_dir.y).acos().to_degrees();
+                                    let spot_c = spot_dir.x.atan2(spot_dir.z).to_degrees();
+                                    let spot_c = if spot_c < 0.0 { spot_c + 360.0 } else { spot_c };
+                                    let base_i = sample_ldt(ldt, spot_c, spot_gamma) as f32;
+                                    total += atten * base_i * frac;
+                                }
+                                total * 100.0
                             } else {
                                 10000.0
                             }
