@@ -15,6 +15,7 @@
 use std::f32::consts::PI;
 
 use bevy::{
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     light::{ColorTemperature, PhotometricLight, PhotometricPlugin},
     prelude::*,
 };
@@ -38,9 +39,10 @@ struct VisHelpers {
     bollards: bool,
     facades: bool,
     persons: bool,
+    heatmap: bool,
 }
 impl Default for VisHelpers {
-    fn default() -> Self { Self { bollards: true, facades: true, persons: true } }
+    fn default() -> Self { Self { bollards: true, facades: true, persons: true, heatmap: false } }
 }
 
 /// Despawned on mode/vis switch.
@@ -51,15 +53,18 @@ struct SceneEntity;
 struct InfoText;
 
 #[derive(Component)]
+struct FpsText;
+
+#[derive(Component)]
 struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32, auto_orbit: bool }
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, PhotometricPlugin))
+        .add_plugins((DefaultPlugins, PhotometricPlugin, FrameTimeDiagnosticsPlugin::default()))
         .init_resource::<RenderMode>()
         .init_resource::<VisHelpers>()
         .add_systems(Startup, setup_camera)
-        .add_systems(Update, (handle_input, orbit_camera))
+        .add_systems(Update, (handle_input, orbit_camera, update_fps))
         .add_systems(Update, rebuild_scene.run_if(
             resource_changed::<RenderMode>.or_else(resource_changed::<VisHelpers>)
         ))
@@ -71,6 +76,11 @@ fn setup_camera(mut commands: Commands) {
         Text::new("Loading..."),
         Node { position_type: PositionType::Absolute, top: Val::Px(12.0), left: Val::Px(12.0), ..default() },
         InfoText,
+    ));
+    commands.spawn((
+        Text::new("FPS: --"),
+        Node { position_type: PositionType::Absolute, top: Val::Px(12.0), right: Val::Px(12.0), ..default() },
+        FpsText,
     ));
     commands.spawn((
         Camera3d::default(),
@@ -92,6 +102,7 @@ fn handle_input(
     if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; }
     if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; }
     if keys.just_pressed(KeyCode::KeyP) { vis.persons = !vis.persons; }
+    if keys.just_pressed(KeyCode::KeyH) { vis.heatmap = !vis.heatmap; }
 }
 
 /// Rebuild everything on mode or vis change.
@@ -111,10 +122,11 @@ fn rebuild_scene(
     let warm = Color::srgb(1.0, 0.72, 0.42);
 
     let vis_line = format!(
-        "B:bollards[{}] G:facades[{}] P:persons[{}]",
+        "B:bollards[{}] G:facades[{}] P:persons[{}] H:heatmap[{}]",
         if vis.bollards { "ON" } else { "off" },
         if vis.facades { "ON" } else { "off" },
         if vis.persons { "ON" } else { "off" },
+        if vis.heatmap { "ON" } else { "off" },
     );
 
     match *mode {
@@ -397,7 +409,113 @@ fn spawn_road_strip(
         pi += 1;
     }
 
+    // --- Ground heatmap (H toggle) ---
+    if vis.heatmap {
+        // Collect light positions for illuminance computation
+        let mut light_positions: Vec<Vec3> = Vec::new();
+        let mut lpz = -ROAD_LENGTH / 2.0 + POLE_SPACING / 2.0;
+        let mut lpi = 0u32;
+        while lpz < ROAD_LENGTH / 2.0 {
+            let lside: f32 = if lpi % 2 == 0 { -1.0 } else { 1.0 };
+            let lpx = x_offset + lside * (rw / 2.0 + 0.5);
+            let ltc = -lside;
+            let larm = 1.5;
+            light_positions.push(Vec3::new(lpx + ltc * larm, MOUNTING_HEIGHT, lpz));
+            lpz += POLE_SPACING;
+            lpi += 1;
+        }
+
+        // Grid resolution
+        let grid_x = 30; // across road
+        let grid_z = 60; // along road
+        let cell_w = (rw + 2.0 * SIDEWALK_WIDTH) / grid_x as f32;
+        let cell_h = ROAD_LENGTH / grid_z as f32;
+        let total_w = rw + 2.0 * SIDEWALK_WIDTH;
+
+        // Compute illuminance at each grid point and find max
+        let mut lux_grid = vec![0.0f32; grid_x * grid_z];
+        for zi in 0..grid_z {
+            for xi in 0..grid_x {
+                let gx = x_offset - total_w / 2.0 + (xi as f32 + 0.5) * cell_w;
+                let gz = -ROAD_LENGTH / 2.0 + (zi as f32 + 0.5) * cell_h;
+                let ground_pt = Vec3::new(gx, 0.01, gz);
+
+                let mut total_lux = 0.0f32;
+                for lp in &light_positions {
+                    let to_light = *lp - ground_pt;
+                    let dist_sq = to_light.length_squared();
+                    if dist_sq < 0.1 { continue; }
+                    // cos(theta) = vertical component / distance
+                    let cos_theta = to_light.y / to_light.length();
+                    if cos_theta <= 0.0 { continue; }
+                    // E = I * cos(theta) / d^2  (simplified, uniform I)
+                    total_lux += cos_theta / dist_sq * 10000.0;
+                }
+                lux_grid[zi * grid_x + xi] = total_lux;
+            }
+        }
+
+        let max_lux = lux_grid.iter().cloned().fold(0.0f32, f32::max).max(0.001);
+
+        // Spawn colored cells
+        for zi in 0..grid_z {
+            for xi in 0..grid_x {
+                let val = (lux_grid[zi * grid_x + xi] / max_lux).clamp(0.0, 1.0);
+                if val < 0.01 { continue; } // skip very dark cells
+
+                let (r, g, b) = heatmap_color(val);
+                let gx = x_offset - total_w / 2.0 + (xi as f32 + 0.5) * cell_w;
+                let gz = -ROAD_LENGTH / 2.0 + (zi as f32 + 0.5) * cell_h;
+
+                let mat = materials.add(StandardMaterial {
+                    base_color: Color::srgba(r, g, b, 0.6),
+                    alpha_mode: AlphaMode::Blend,
+                    unlit: true,
+                    ..default()
+                });
+
+                commands.spawn((
+                    Mesh3d(meshes.add(Plane3d::default().mesh().size(cell_w * 0.95, cell_h * 0.95))),
+                    MeshMaterial3d(mat),
+                    Transform::from_xyz(gx, 0.02, gz),
+                    SceneEntity,
+                ));
+            }
+        }
+    }
+
     (pi, total_lights)
+}
+
+fn update_fps(
+    diagnostics: Res<DiagnosticsStore>,
+    mut query: Query<&mut Text, With<FpsText>>,
+) {
+    if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
+        if let Some(avg) = fps.smoothed() {
+            for mut text in &mut query {
+                *text = Text::new(format!("FPS: {avg:.0}"));
+            }
+        }
+    }
+}
+
+/// Map a 0..1 value to a heatmap color (blue → cyan → green → yellow → red).
+fn heatmap_color(val: f32) -> (f32, f32, f32) {
+    let v = val.clamp(0.0, 1.0);
+    if v < 0.25 {
+        let t = v / 0.25;
+        (0.0, t, 1.0) // blue → cyan
+    } else if v < 0.5 {
+        let t = (v - 0.25) / 0.25;
+        (0.0, 1.0, 1.0 - t) // cyan → green
+    } else if v < 0.75 {
+        let t = (v - 0.5) / 0.25;
+        (t, 1.0, 0.0) // green → yellow
+    } else {
+        let t = (v - 0.75) / 0.25;
+        (1.0, 1.0 - t, 0.0) // yellow → red
+    }
 }
 
 fn orbit_camera(
