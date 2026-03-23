@@ -10,3 +10,10 @@ bevy = { path = "../..", default-features = true, features = [
     "pbr_photometric_lights",
     "pbr_clustered_decals",
 ] }
+
+# Optimize for WASM release
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "thin"
+codegen-units = 1

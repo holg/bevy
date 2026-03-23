@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photometric Lighting Comparison - Bevy Engine</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; }
+        canvas {
+            width: 100vw !important;
+            height: 100vh !important;
+            display: block;
+        }
+        #loading {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ccc;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 18px;
+            text-align: center;
+            z-index: 100;
+        }
+        #loading .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid #444;
+            border-top-color: #f90;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #controls {
+            position: fixed;
+            bottom: 12px; left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: #ddd;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            z-index: 50;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <div class="spinner"></div>
+        <div>Loading Photometric Comparison Demo...</div>
+        <div style="font-size: 12px; color: #888; margin-top: 8px;">Requires WebGPU (Chrome 113+, Edge 113+, Firefox Nightly)</div>
+    </div>
+    <div id="controls">
+        1-4: Mode (Plain / Multi-spot / Native / Side-by-side) | WASD: Pan | Arrows: Orbit | R/F: Zoom | Space: Auto-orbit | B/G/P/H: Toggles
+    </div>
+    <script type="module">
+        import init from './photometric_comparison.js';
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Hide loading once WASM starts
+            try {
+                await init();
+            } catch(e) {
+                document.getElementById('loading').innerHTML =
+                    '<div style="color:#f66">Failed to load WebGPU demo</div>' +
+                    '<div style="font-size:12px;color:#888;margin-top:8px">' + e.message + '</div>' +
+                    '<div style="font-size:12px;color:#888;margin-top:8px">Make sure your browser supports WebGPU</div>';
+            }
+        });
+
+        // Hide loading screen once canvas appears
+        const observer = new MutationObserver(() => {
+            if (document.querySelector('canvas')) {
+                document.getElementById('loading').style.display = 'none';
+                observer.disconnect();
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+    </script>
+</body>
+</html>
