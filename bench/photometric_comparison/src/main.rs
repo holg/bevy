@@ -161,18 +161,20 @@ fn handle_input(
     else if keys.just_pressed(KeyCode::Digit4) { *mode = RenderMode::CubemapCookie; }
     else if keys.just_pressed(KeyCode::Digit5) { *mode = RenderMode::SideBySide; }
 
-    if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; }
-    if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; }
-    if keys.just_pressed(KeyCode::KeyP) { vis.persons = !vis.persons; }
-    if keys.just_pressed(KeyCode::KeyH) { vis.heatmap = !vis.heatmap; }
+    if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; info!("bollards: {}", vis.bollards); }
+    if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; info!("facades: {}", vis.facades); }
+    if keys.just_pressed(KeyCode::KeyP) { vis.persons = !vis.persons; info!("persons: {}", vis.persons); }
+    if keys.just_pressed(KeyCode::KeyH) { vis.heatmap = !vis.heatmap; info!("heatmap: {}", vis.heatmap); }
 
     // Cycle LDT profiles with [ and ]
     if keys.just_pressed(KeyCode::BracketLeft) {
         let len = ldt_lib.profiles.len();
         ldt_lib.current = (len + ldt_lib.current - 1) % len;
+        info!("LDT: {} ({})", ldt_lib.current, ldt_lib.profiles[ldt_lib.current].0);
     }
     if keys.just_pressed(KeyCode::BracketRight) {
         ldt_lib.current = (ldt_lib.current + 1) % ldt_lib.profiles.len();
+        info!("LDT: {} ({})", ldt_lib.current, ldt_lib.profiles[ldt_lib.current].0);
     }
 }
 
@@ -718,7 +720,7 @@ fn spawn_road_strip(
                 commands.spawn((
                     Mesh3d(meshes.add(Plane3d::default().mesh().size(cell_w * 0.95, cell_h * 0.95))),
                     MeshMaterial3d(mat),
-                    Transform::from_xyz(gx, 0.02, gz),
+                    Transform::from_xyz(gx, 0.15, gz),
                     SceneEntity,
                 ));
             }
