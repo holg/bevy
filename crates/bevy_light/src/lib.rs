@@ -9,9 +9,9 @@ use bevy_asset::{AssetApp, AssetEventSystems};
 use bevy_camera::{
     primitives::{Aabb, CascadesFrusta, CubemapFrusta, Frustum, Sphere},
     visibility::{
-        CascadesVisibleEntities, CubemapVisibleEntities, InheritedVisibility, NoFrustumCulling,
-        RenderLayers, ViewVisibility, VisibilityRange, VisibilitySystems, VisibleEntities,
-        VisibleEntityRanges, VisibleMeshEntities,
+        CascadesVisibleEntities, CubemapVisibleEntities, InheritedVisibility, NoCpuCulling,
+        NoFrustumCulling, RenderLayers, ViewVisibility, VisibilityRange, VisibilitySystems,
+        VisibleEntities, VisibleEntityRanges, VisibleMeshEntities,
     },
     Camera3d, CameraUpdateSystems,
 };
@@ -63,6 +63,8 @@ mod color_temperature;
 pub use color_temperature::ColorTemperature;
 pub mod photometric;
 pub use photometric::{PhotometricLight, PhotometricPlugin, PhotometricProfile};
+mod rect_light;
+pub use rect_light::RectLight;
 /// Provides gizmo drawing for visualizing light positions.
 #[cfg(feature = "bevy_gizmos")]
 pub mod gizmos;
@@ -74,7 +76,8 @@ pub mod prelude {
     #[doc(hidden)]
     pub use crate::{
         light_consts, AmbientLight, ColorTemperature, DirectionalLight, EnvironmentMapLight,
-        GeneratedEnvironmentMapLight, GlobalAmbientLight, LightProbe, PointLight, SpotLight,
+        GeneratedEnvironmentMapLight, GlobalAmbientLight, LightProbe, PointLight, RectLight,
+        SpotLight,
     };
 
     #[doc(hidden)]
@@ -243,8 +246,13 @@ impl Plugin for LightPlugin {
 }
 
 /// A convenient alias for `Or<(With<PointLight>, With<SpotLight>,
-/// With<DirectionalLight>)>`, for use with [`bevy_camera::visibility::VisibleEntities`].
-pub type WithLight = Or<(With<PointLight>, With<SpotLight>, With<DirectionalLight>)>;
+/// With<DirectionalLight>, With<RectLight>)>`, for use with [`bevy_camera::visibility::VisibleEntities`].
+pub type WithLight = Or<(
+    With<PointLight>,
+    With<SpotLight>,
+    With<DirectionalLight>,
+    With<RectLight>,
+)>;
 
 /// Add this component to make a [`Mesh3d`] not cast shadows.
 #[derive(Debug, Component, Reflect, Default, Clone, PartialEq)]
@@ -322,7 +330,11 @@ pub enum SimulationLightSystems {
     CheckLightVisibility,
 }
 
-/// Updates the visibility for [`DirectionalLight`]s so that shadow map rendering can work.
+/// Updates the visibility for [`DirectionalLight`]s so that shadow map
+/// rendering can work.
+///
+/// This only processes entities without [`NoCpuCulling`]. Entities with
+/// [`NoCpuCulling`] receive no view-specific processing in the main world.
 pub fn check_dir_light_mesh_visibility(
     mut commands: Commands,
     mut directional_lights: Query<
@@ -348,6 +360,7 @@ pub fn check_dir_light_mesh_visibility(
         (
             Without<NotShadowCaster>,
             Without<DirectionalLight>,
+            Without<NoCpuCulling>,
             With<Mesh3d>,
         ),
     >,
@@ -485,8 +498,11 @@ pub fn check_dir_light_mesh_visibility(
     });
 }
 
-/// Updates the visibility for [`PointLight`]s and [`SpotLight`]s so that
-/// shadow map rendering can work.
+/// Updates the visibility for [`PointLight`]s and [`SpotLight`]s so that shadow
+/// map rendering can work.
+///
+/// This only processes entities without [`NoCpuCulling`]. Entities with
+/// [`NoCpuCulling`] receive no view-specific processing in the main world.
 pub fn check_point_light_mesh_visibility(
     visible_point_lights: Query<&VisibleEntities>,
     mut point_lights: Query<(
@@ -517,6 +533,7 @@ pub fn check_point_light_mesh_visibility(
         (
             Without<NotShadowCaster>,
             Without<DirectionalLight>,
+            Without<NoCpuCulling>,
             With<Mesh3d>,
         ),
     >,

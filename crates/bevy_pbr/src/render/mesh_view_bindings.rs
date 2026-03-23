@@ -1,3 +1,4 @@
+use crate::LtcLuts;
 use alloc::sync::Arc;
 use bevy_core_pipeline::{
     oit::{resolve::is_oit_supported, OitBuffers, OrderIndependentTransparencySettings},
@@ -439,7 +440,19 @@ pub fn layout_entries(
             texture_2d_array(TextureSampleType::Float { filterable: false }),
         ),));
     }
-
+    // LTC LUTs for area lights
+    entries = entries.extend_with_indices((
+        (
+            36,
+            texture_2d(TextureSampleType::Float { filterable: true }),
+        ),
+        (37, sampler(SamplerBindingType::Filtering)),
+        (
+            38,
+            texture_2d(TextureSampleType::Float { filterable: true }),
+        ),
+        (39, sampler(SamplerBindingType::Filtering)),
+    ));
     let mut binding_array_entries = DynamicBindGroupLayoutEntries::new(ShaderStages::FRAGMENT);
     binding_array_entries = binding_array_entries.extend_with_indices((
         (0, environment_map_entries[0]),
@@ -655,6 +668,7 @@ pub fn prepare_mesh_view_bind_groups(
         atmosphere_buffer,
         atmosphere_sampler,
         blue_noise,
+        ltc_luts,
         render_photometric_profiles,
         photometric_descriptors_buffer,
     ): (
@@ -663,6 +677,7 @@ pub fn prepare_mesh_view_bind_groups(
         Option<Res<AtmosphereBuffer>>,
         Option<Res<AtmosphereSampler>>,
         Res<Bluenoise>,
+        Res<LtcLuts>,
         Option<Res<RenderPhotometricProfiles>>,
         Option<Res<PhotometricDescriptorsBuffer>>,
     ),
@@ -835,6 +850,22 @@ pub fn prepare_mesh_view_bind_groups(
                     .texture_view;
                 entries = entries.extend_with_indices(((35, stbn_view),));
             }
+
+            // LTC LUTs for area lights
+            let (ltc1_view, ltc1_sampler) = images
+                .get(&ltc_luts.ltc_1)
+                .map(|img| (&img.texture_view, &img.sampler))
+                .unwrap_or((&fallback_image.d2.texture_view, &fallback_image.d2.sampler));
+            let (ltc2_view, ltc2_sampler) = images
+                .get(&ltc_luts.ltc_2)
+                .map(|img| (&img.texture_view, &img.sampler))
+                .unwrap_or((&fallback_image.d2.texture_view, &fallback_image.d2.sampler));
+            entries = entries.extend_with_indices((
+                (36, ltc1_view),
+                (37, ltc1_sampler),
+                (38, ltc2_view),
+                (39, ltc2_sampler),
+            ));
 
             let mut entries_binding_array = DynamicBindGroupEntries::new();
 

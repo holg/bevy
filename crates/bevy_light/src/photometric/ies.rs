@@ -217,19 +217,19 @@ fn build_profile(
 
     // Generate the full intensity grid in Type C coordinates.
     // IES Type C: gamma from vertical_angles, C from horizontal_angles.
-    // IES C0 is perpendicular to luminaire length, so we rotate +90° to match
+    // NOTE: IES and EULUMDAT have different C0 conventions but the actual
+    // orientation depends on the manufacturer's goniophotometer setup.
+    // We do NOT apply automatic rotation — the user can rotate the luminaire
+    // via the entity's Transform component.
     // the EULUMDAT convention (C0 along luminaire length).
     let mut grid = vec![0.0f32; c_steps * g_steps];
     let mut peak = 0.0f32;
 
     for c_idx in 0..c_steps {
         let c_angle_deg = (c_idx as f32 / (c_steps - 1) as f32) * 360.0;
-        // Apply +90° C-plane rotation to convert IES → Type C convention
-        let rotated_c = if data.photometric_type == 1 {
-            (c_angle_deg + 90.0) % 360.0
-        } else {
-            c_angle_deg
-        };
+        // No automatic C-plane rotation — take data as provided.
+        // The user can rotate the luminaire in the scene if needed.
+        let rotated_c = c_angle_deg;
 
         for g_idx in 0..g_steps {
             let g_angle_deg = (g_idx as f32 / (g_steps - 1) as f32) * 180.0;

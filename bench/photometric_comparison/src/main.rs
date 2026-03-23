@@ -710,60 +710,30 @@ fn spawn_road_strip(
 
         let max_lux = lux_grid.iter().cloned().fold(0.0f32, f32::max).max(0.001);
 
-        // Build a single mesh with vertex colors for the heatmap (fast, no Z-fighting)
-        let mut positions = Vec::new();
-        let mut normals = Vec::new();
-        let mut colors: Vec<[f32; 4]> = Vec::new();
-        let mut indices = Vec::new();
+        // Pre-create shared quad mesh
+        let quad_mesh = meshes.add(Plane3d::default().mesh().size(cell_w * 0.92, cell_h * 0.92));
 
         for zi in 0..grid_z {
             for xi in 0..grid_x {
                 let val = (lux_grid[zi * grid_x + xi] / max_lux).clamp(0.0, 1.0);
-                let (r, g, b) = heatmap_color(val);
-                let gx = x_offset - total_w / 2.0 + xi as f32 * cell_w;
-                let gz = -ROAD_LENGTH / 2.0 + zi as f32 * cell_h;
-                let y = 0.05;
+                if val < 0.02 { continue; }
 
-                let base_idx = positions.len() as u32;
-                // Quad vertices
-                positions.push([gx, y, gz]);
-                positions.push([gx + cell_w, y, gz]);
-                positions.push([gx + cell_w, y, gz + cell_h]);
-                positions.push([gx, y, gz + cell_h]);
-                for _ in 0..4 {
-                    normals.push([0.0, 1.0, 0.0]);
-                    colors.push([r, g, b, 1.0]);
-                }
-                // Two triangles
-                indices.push(base_idx);
-                indices.push(base_idx + 1);
-                indices.push(base_idx + 2);
-                indices.push(base_idx);
-                indices.push(base_idx + 2);
-                indices.push(base_idx + 3);
+                let (r, g, b) = heatmap_color(val);
+                let gx = x_offset - total_w / 2.0 + (xi as f32 + 0.5) * cell_w;
+                let gz = -ROAD_LENGTH / 2.0 + (zi as f32 + 0.5) * cell_h;
+
+                commands.spawn((
+                    Mesh3d(quad_mesh.clone()),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgb(r, g, b),
+                        emissive: LinearRgba::new(r * 3.0, g * 3.0, b * 3.0, 1.0),
+                        ..default()
+                    })),
+                    Transform::from_xyz(gx, 0.20, gz),
+                    SceneEntity,
+                ));
             }
         }
-
-        let mut mesh = Mesh::new(
-            bevy::render::render_resource::PrimitiveTopology::TriangleList,
-            RenderAssetUsages::default(),
-        );
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
-        mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
-
-        let heatmap_mat = materials.add(StandardMaterial {
-            base_color: Color::WHITE,
-            unlit: true,
-            ..default()
-        });
-
-        commands.spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(heatmap_mat),
-            SceneEntity,
-        ));
     }
 
     (pi, total_lights)
