@@ -641,17 +641,20 @@ fn spawn_road_strip(
                             }
                         }
                         RenderMode::MultiSpot => {
-                            // Simulate the 5-spot workaround as actually spawned:
-                            // Each spot has a direction and cone. Compute contribution
-                            // from each using spot attenuation (Filament formula).
+                            // Simulate the 5-spot workaround:
+                            // Each spot covers a region. The LDT is sampled at the
+                            // ground point's actual angle, but modulated by spot
+                            // cone attenuation. Where cones overlap, contributions
+                            // add up. Where no cone reaches, intensity is zero.
+                            // This is a reasonable approximation but shows discrete
+                            // cone boundaries vs native's smooth distribution.
                             if let Some(ref ldt) = ldt_data {
-                                // Spot definitions: (direction, outer_angle, inner_angle, intensity_frac)
                                 let spots: [(Vec3, f32, f32, f32); 5] = [
-                                    (Vec3::NEG_Y, 1.1, 0.4, 0.25),                          // downward
-                                    (Vec3::new(0.0, -5.0, 8.0).normalize(), 1.2, 0.3, 0.30), // road throw
-                                    (Vec3::new(0.0, -5.0, -5.0).normalize(), 1.0, 0.3, 0.15),// opposite
-                                    (Vec3::new(-_side * 5.0, -6.0, 0.0).normalize(), 0.9, 0.3, 0.20), // cross
-                                    (Vec3::NEG_Y, std::f32::consts::PI, 0.0, 0.10),         // ambient fill
+                                    (Vec3::NEG_Y, 1.1, 0.4, 0.25),
+                                    (Vec3::new(0.0, -5.0, 8.0).normalize(), 1.2, 0.3, 0.30),
+                                    (Vec3::new(0.0, -5.0, -5.0).normalize(), 1.0, 0.3, 0.15),
+                                    (Vec3::new(-_side * 5.0, -6.0, 0.0).normalize(), 0.9, 0.3, 0.20),
+                                    (Vec3::NEG_Y, std::f32::consts::FRAC_PI_2, 0.0, 0.10),
                                 ];
                                 let mut total = 0.0f32;
                                 for (spot_dir, outer, inner, frac) in &spots {
@@ -662,12 +665,11 @@ fn spawn_road_strip(
                                     let spot_offset = -cos_outer * spot_scale;
                                     let atten = (cd * spot_scale + spot_offset).clamp(0.0, 1.0);
                                     let atten = atten * atten;
-                                    // Sample LDT at the spot's central direction for base intensity
-                                    let spot_gamma = (-spot_dir.y).acos().to_degrees();
-                                    let spot_c = spot_dir.x.atan2(spot_dir.z).to_degrees();
-                                    let spot_c = if spot_c < 0.0 { spot_c + 360.0 } else { spot_c };
-                                    let base_i = sample_ldt(ldt, spot_c, spot_gamma) as f32;
-                                    total += atten * base_i * frac;
+                                    if atten < 0.001 { continue; }
+                                    // Sample LDT at the ground point's angle (like native)
+                                    // but modulated by which spot cone covers this point
+                                    let point_i = sample_ldt(ldt, c_deg, gamma_deg) as f32;
+                                    total += atten * point_i * frac;
                                 }
                                 total * 100.0
                             } else {
