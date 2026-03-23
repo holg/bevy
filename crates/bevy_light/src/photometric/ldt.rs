@@ -79,27 +79,18 @@ pub struct LdtData {
     /// 2 = bilateral symmetry about C0-C180 (data for C0-C180)
     /// 3 = bilateral symmetry about C90-C270 (data for C0-C180)
     /// 4 = quadrant symmetry (data for C0-C90)
-    isym: u32,
-    /// Number of C-planes in the data
-    num_c_planes: usize,
-    /// Delta C angle in degrees
-    delta_c: f32,
-    /// Number of gamma angles per C-plane
-    num_gamma: usize,
-    /// Delta gamma angle in degrees
-    delta_gamma: f32,
-    /// C-plane angles in degrees
-    c_angles: Vec<f32>,
-    /// Gamma angles in degrees
-    gamma_angles: Vec<f32>,
-    /// Intensity values in cd/klm: c_planes × gamma_angles
-    intensities: Vec<Vec<f32>>,
-    /// Total luminous flux in lumens
-    total_flux: f32,
-    /// Luminaire dimensions in mm
-    length_mm: f32,
-    width_mm: f32,
-    height_mm: f32,
+    pub isym: u32,
+    pub num_c_planes: usize,
+    pub delta_c: f32,
+    pub num_gamma: usize,
+    pub delta_gamma: f32,
+    pub c_angles: Vec<f32>,
+    pub gamma_angles: Vec<f32>,
+    pub intensities: Vec<Vec<f32>>,
+    pub total_flux: f32,
+    pub length_mm: f32,
+    pub width_mm: f32,
+    pub height_mm: f32,
 }
 
 /// Parse an EULUMDAT file.

@@ -530,12 +530,26 @@ fn spawn_road_strip(
     if vis.heatmap {
         // Parse current LDT for heatmap sampling
         let full_ldt_path = format!("assets/{ldt_path}");
-        let ldt_data = std::fs::read(&full_ldt_path)
-            .ok()
-            .and_then(|bytes| {
+        let ldt_data = match std::fs::read(&full_ldt_path) {
+            Ok(bytes) => {
                 let text = String::from_utf8_lossy(&bytes);
-                parse_ldt(&text).ok()
-            });
+                match parse_ldt(&text) {
+                    Ok(data) => {
+                        info!("Heatmap: loaded '{}', {} C-planes, {} gamma angles",
+                            ldt_path, data.c_angles.len(), data.gamma_angles.len());
+                        Some(data)
+                    }
+                    Err(e) => {
+                        warn!("Heatmap: failed to parse '{}': {}", ldt_path, e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Heatmap: failed to read '{}': {}", full_ldt_path, e);
+                None
+            }
+        };
 
         // Collect luminaire positions
         let mut light_positions: Vec<(Vec3, f32)> = Vec::new(); // (pos, side)
@@ -573,41 +587,90 @@ fn spawn_road_strip(
                     let cos_incidence = to_light.y / dist;
                     if cos_incidence <= 0.0 { continue; }
 
+                    // Compute (C, gamma) for this ground point relative to luminaire
+                    let dir = -to_light / dist; // light-to-ground direction
+                    let gamma_deg = (-dir.y).acos().to_degrees();
+                    let c_deg = dir.x.atan2(dir.z).to_degrees();
+                    let c_deg = if c_deg < 0.0 { c_deg + 360.0 } else { c_deg };
+
                     let intensity = match mode {
                         RenderMode::Native => {
-                            // Sample actual LDT angular distribution
+                            // Per-fragment angular lookup — the correct approach
                             if let Some(ref ldt) = ldt_data {
-                                let dir = -to_light / dist; // light-to-ground direction
-                                // gamma = angle from nadir (downward = -Y)
-                                let gamma = (-dir.y).acos().to_degrees();
-                                // C = azimuthal angle
-                                let c = dir.x.atan2(dir.z).to_degrees();
-                                let c = if c < 0.0 { c + 360.0 } else { c };
-                                sample_ldt(ldt, c, gamma) as f32 * 100.0
+                                sample_ldt(ldt, c_deg, gamma_deg) as f32 * 100.0
                             } else {
-                                10000.0 // fallback
+                                10000.0
+                            }
+                        }
+                        RenderMode::CubemapCookie => {
+                            // Cubemap cookie projection (Unity/Unreal approach).
+                            // Sample the LDT via the cubemap UV mapping, which
+                            // introduces projective distortion at grazing angles.
+                            if let Some(ref ldt) = ldt_data {
+                                // Reconstruct the cubemap lookup:
+                                // 1. Find which cube face this direction hits
+                                // 2. Compute face UV (projective division)
+                                // 3. Convert UV back to angular coordinates
+                                // The projective division (dividing by the dominant axis)
+                                // is where the distortion comes from.
+                                let abs_dir = Vec3::new(dir.x.abs(), dir.y.abs(), dir.z.abs());
+                                let max_axis = abs_dir.x.max(abs_dir.y).max(abs_dir.z);
+                                // Projective UV on the dominant face
+                                let (face_u, face_v) = if max_axis == abs_dir.y {
+                                    // Y face (most common for downlights)
+                                    (dir.x / abs_dir.y, dir.z / abs_dir.y)
+                                } else if max_axis == abs_dir.x {
+                                    (dir.z / abs_dir.x, dir.y / abs_dir.x)
+                                } else {
+                                    (dir.x / abs_dir.z, dir.y / abs_dir.z)
+                                };
+                                // Convert projected UV back to direction and then to angles
+                                // This is where the distortion lives — the projected UV
+                                // maps to a different (C, gamma) than the original direction
+                                let proj_dir = Vec3::new(
+                                    face_u * max_axis,
+                                    dir.y,
+                                    face_v * max_axis,
+                                ).normalize();
+                                let proj_gamma = (-proj_dir.y).acos().to_degrees();
+                                let proj_c = proj_dir.x.atan2(proj_dir.z).to_degrees();
+                                let proj_c = if proj_c < 0.0 { proj_c + 360.0 } else { proj_c };
+                                sample_ldt(ldt, proj_c, proj_gamma) as f32 * 100.0
+                            } else {
+                                10000.0
                             }
                         }
                         RenderMode::MultiSpot => {
-                            // Approximate 5-spot contribution
-                            let dir = -to_light / dist;
-                            let down_dot = -dir.y; // alignment with straight down
-                            let along_road = dir.z.abs();
-                            // Crude multi-spot envelope
-                            let spot_main = (down_dot * 2.0).clamp(0.0, 1.0).powi(3);
-                            let spot_throw = (along_road * 1.5).clamp(0.0, 1.0).powi(2);
-                            (spot_main * 5000.0 + spot_throw * 8000.0)
-                        }
-                        RenderMode::CubemapCookie => {
-                            // Single spot cone approximation (Unity/Unreal style)
-                            let dir = -to_light / dist;
-                            let down_dot = -dir.y;
-                            // Spot cone: ~70° outer, ~30° inner
-                            let cone = ((down_dot - 0.34) / (0.87 - 0.34)).clamp(0.0, 1.0);
-                            cone * cone * 15000.0
+                            // Approximate the multi-spot workaround:
+                            // 5 spots sample the LDT at their fixed directions,
+                            // each with a cone falloff. The result is a discretized
+                            // approximation of the real distribution.
+                            if let Some(ref ldt) = ldt_data {
+                                let down_dot = -dir.y;
+                                // Main downward spot (samples LDT at nadir area)
+                                let nadir_val = sample_ldt(ldt, 0.0, 0.0) as f32;
+                                let spot_down = (down_dot * 2.0).clamp(0.0, 1.0).powi(3) * nadir_val;
+                                // Forward throw spot (samples LDT at C=0, gamma~60)
+                                let fwd_val = sample_ldt(ldt, 0.0, 60.0) as f32;
+                                let fwd_align = dir.z.max(0.0);
+                                let spot_fwd = (fwd_align * 1.5).clamp(0.0, 1.0).powi(2) * fwd_val;
+                                // Backward throw
+                                let bwd_val = sample_ldt(ldt, 180.0, 60.0) as f32;
+                                let bwd_align = (-dir.z).max(0.0);
+                                let spot_bwd = (bwd_align * 1.5).clamp(0.0, 1.0).powi(2) * bwd_val * 0.5;
+                                // Cross-road
+                                let cross_val = sample_ldt(ldt, 90.0, 60.0) as f32;
+                                let cross_align = dir.x.abs();
+                                let spot_cross = (cross_align * 1.5).clamp(0.0, 1.0).powi(2) * cross_val * 0.7;
+                                // Ambient fill
+                                let ambient = nadir_val * 0.3;
+                                (spot_down + spot_fwd + spot_bwd + spot_cross + ambient) * 0.3
+                            } else {
+                                10000.0
+                            }
                         }
                         RenderMode::Plain | RenderMode::SideBySide => {
-                            // Uniform point light
+                            // Uniform point light — no angular variation
                             10000.0
                         }
                     };
