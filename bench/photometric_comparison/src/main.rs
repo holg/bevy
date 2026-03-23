@@ -37,11 +37,13 @@ enum RenderMode {
     Plain,
     MultiSpot,
     Native,
+    /// All three side by side on parallel roads
+    SideBySide,
 }
 
 impl Default for RenderMode {
     fn default() -> Self {
-        RenderMode::Native
+        RenderMode::SideBySide
     }
 }
 
@@ -99,9 +101,9 @@ fn setup_scene(
         ..default()
     });
 
-    // Road surface
+    // Ground plane (wide enough for side-by-side mode)
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(rw, ROAD_LENGTH))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(60.0, ROAD_LENGTH))),
         MeshMaterial3d(road_mat),
     ));
 
@@ -182,7 +184,7 @@ fn setup_scene(
         Transform::from_xyz(-12.0, 10.0, 20.0).looking_at(Vec3::new(0.0, 2.0, 0.0), Vec3::Y),
         OrbitCamera {
             focus: Vec3::new(0.0, 2.0, 0.0),
-            radius: 25.0,
+            radius: 40.0,
             yaw: -0.5,
             pitch: 0.4,
         },
@@ -196,45 +198,39 @@ fn handle_input(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<RenderMode>) {
         *mode = RenderMode::MultiSpot;
     } else if keys.just_pressed(KeyCode::Digit3) {
         *mode = RenderMode::Native;
+    } else if keys.just_pressed(KeyCode::Digit4) {
+        *mode = RenderMode::SideBySide;
     }
 }
 
-/// Despawn old lights, spawn new ones based on mode.
-fn spawn_mode_lights(
-    mut commands: Commands,
-    mode: Res<RenderMode>,
-    old_lights: Query<Entity, With<ModeLight>>,
-    asset_server: Res<AssetServer>,
-    mut text_query: Query<&mut Text, With<InfoText>>,
-) {
-    // Despawn old
-    for entity in &old_lights {
-        commands.entity(entity).despawn();
-    }
-
+/// Spawn lights for a single road strip at the given X offset.
+fn spawn_road_lights(
+    commands: &mut Commands,
+    x_offset: f32,
+    mode: RenderMode,
+    warm_white: Color,
+    profile: &Handle<bevy::light::PhotometricProfile>,
+) -> (u32, u32) {
     let rw = road_width();
-    let warm_white = Color::srgb(1.0, 0.72, 0.42);
-    let profile = asset_server.load("photometric/acme_road.ldt");
-
     let mut pz = -ROAD_LENGTH / 2.0 + POLE_SPACING / 2.0;
     let mut pi = 0u32;
     let mut total_lights = 0u32;
 
     while pz < ROAD_LENGTH / 2.0 {
         let side: f32 = if pi % 2 == 0 { -1.0 } else { 1.0 };
-        let px = side * (rw / 2.0 + 0.5);
+        let px = x_offset + side * (rw / 2.0 + 0.5);
         let tc = -side;
         let arm = 1.5;
         let pos = Vec3::new(px + tc * arm, MOUNTING_HEIGHT, pz);
 
-        match *mode {
-            RenderMode::Plain => {
+        match mode {
+            RenderMode::Plain | RenderMode::SideBySide => {
                 commands.spawn((
                     PointLight {
                         color: warm_white,
                         intensity: 200_000.0,
                         range: 20.0,
-                        shadow_maps_enabled: pi == 0,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(pos),
@@ -243,7 +239,6 @@ fn spawn_mode_lights(
                 total_lights += 1;
             }
             RenderMode::MultiSpot => {
-                // Ambient
                 commands.spawn((
                     PointLight {
                         color: warm_white,
@@ -255,7 +250,6 @@ fn spawn_mode_lights(
                     Transform::from_translation(pos),
                     ModeLight,
                 ));
-                // Downward
                 commands.spawn((
                     SpotLight {
                         color: warm_white,
@@ -263,14 +257,13 @@ fn spawn_mode_lights(
                         range: 18.0,
                         outer_angle: 1.1,
                         inner_angle: 0.4,
-                        shadow_maps_enabled: pi == 0,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     Transform::from_translation(pos)
                         .looking_at(pos - Vec3::Y * 5.0, Vec3::Z),
                     ModeLight,
                 ));
-                // Road throw
                 commands.spawn((
                     SpotLight {
                         color: warm_white,
@@ -285,7 +278,6 @@ fn spawn_mode_lights(
                         .looking_at(pos + Vec3::new(0.0, -5.0, 8.0), Vec3::Y),
                     ModeLight,
                 ));
-                // Opposite
                 commands.spawn((
                     SpotLight {
                         color: warm_white,
@@ -300,7 +292,6 @@ fn spawn_mode_lights(
                         .looking_at(pos + Vec3::new(0.0, -5.0, -5.0), Vec3::Y),
                     ModeLight,
                 ));
-                // Cross-road
                 commands.spawn((
                     SpotLight {
                         color: warm_white,
@@ -322,7 +313,7 @@ fn spawn_mode_lights(
                     PointLight {
                         intensity: 300_000.0,
                         range: 25.0,
-                        shadow_maps_enabled: pi == 0,
+                        shadow_maps_enabled: false,
                         ..default()
                     },
                     PhotometricLight {
@@ -339,19 +330,65 @@ fn spawn_mode_lights(
         pz += POLE_SPACING;
         pi += 1;
     }
+    (pi, total_lights)
+}
 
-    let mode_name = match *mode {
-        RenderMode::Plain => "PLAIN: Standard PointLights",
-        RenderMode::MultiSpot => "MULTI-SPOT: 5 lights/luminaire workaround",
-        RenderMode::Native => "NATIVE: Per-fragment photometric (1 light/luminaire)",
+/// Despawn old lights, spawn new ones based on mode.
+fn spawn_mode_lights(
+    mut commands: Commands,
+    mode: Res<RenderMode>,
+    old_lights: Query<Entity, With<ModeLight>>,
+    asset_server: Res<AssetServer>,
+    mut text_query: Query<&mut Text, With<InfoText>>,
+) {
+    for entity in &old_lights {
+        commands.entity(entity).despawn();
+    }
+
+    let warm_white = Color::srgb(1.0, 0.72, 0.42);
+    let profile = asset_server.load("photometric/acme_road.ldt");
+
+    let (luminaires, total_lights, info) = match *mode {
+        RenderMode::SideBySide => {
+            // Three parallel roads offset along X
+            let gap = 20.0; // spacing between road centers
+            let (p1, l1) = spawn_road_lights(&mut commands, -gap, RenderMode::Plain, warm_white, &profile);
+            let (p2, l2) = spawn_road_lights(&mut commands, 0.0, RenderMode::MultiSpot, warm_white, &profile);
+            let (p3, l3) = spawn_road_lights(&mut commands, gap, RenderMode::Native, warm_white, &profile);
+            (
+                p1 + p2 + p3,
+                l1 + l2 + l3,
+                format!(
+                    "SIDE-BY-SIDE COMPARISON\n\
+                     Left: Plain ({l1} lights)  |  Center: Multi-spot ({l2} lights)  |  Right: Native ({l3} lights)\n\
+                     {} luminaires total\n\
+                     Press 1=Plain  2=Multi-spot  3=Native  4=Side-by-side",
+                    p1 + p2 + p3
+                ),
+            )
+        }
+        _ => {
+            let (pi, tl) = spawn_road_lights(&mut commands, 0.0, *mode, warm_white, &profile);
+            let mode_name = match *mode {
+                RenderMode::Plain => "PLAIN: Standard PointLights",
+                RenderMode::MultiSpot => "MULTI-SPOT: 5 lights/luminaire workaround",
+                RenderMode::Native => "NATIVE: Per-fragment photometric (1 light/luminaire)",
+                RenderMode::SideBySide => unreachable!(),
+            };
+            (
+                pi,
+                tl,
+                format!(
+                    "{mode_name}\n\
+                     {pi} luminaires, {tl} lights\n\
+                     Press 1=Plain  2=Multi-spot  3=Native  4=Side-by-side"
+                ),
+            )
+        }
     };
 
     for mut text in &mut text_query {
-        *text = Text::new(format!(
-            "{mode_name}\n\
-             {pi} luminaires, {total_lights} lights\n\
-             Press 1=Plain  2=Multi-spot  3=Native"
-        ));
+        *text = Text::new(info.clone());
     }
 }
 
