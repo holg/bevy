@@ -80,18 +80,36 @@ struct LdtLibrary {
     current: usize,
 }
 
+/// Embedded LDT file data (for WASM compatibility — no filesystem access).
+struct EmbeddedLdt {
+    label: &'static str,
+    asset_path: &'static str,
+    bytes: &'static [u8],
+}
+
+const EMBEDDED_LDTS: &[EmbeddedLdt] = &[
+    EmbeddedLdt { label: "ACME Road Runner", asset_path: "photometric/acme_road.ldt",
+        bytes: include_bytes!("../../../assets/photometric/acme_road.ldt") },
+    EmbeddedLdt { label: "BGP307 DM10 (LED84)", asset_path: "photometric/BGP307-LED84-4S_830-PSA-DM10.ldt",
+        bytes: include_bytes!("../../../assets/photometric/BGP307-LED84-4S_830-PSA-DM10.ldt") },
+    EmbeddedLdt { label: "BGP307 DRN2 (LED84)", asset_path: "photometric/BGP307-LED84-4S_830-PSA-DRN2.ldt",
+        bytes: include_bytes!("../../../assets/photometric/BGP307-LED84-4S_830-PSA-DRN2.ldt") },
+    EmbeddedLdt { label: "BGP307 DX70 (LED84)", asset_path: "photometric/BGP307-LED84-4S_830-PSA-DX70.ldt",
+        bytes: include_bytes!("../../../assets/photometric/BGP307-LED84-4S_830-PSA-DX70.ldt") },
+    EmbeddedLdt { label: "BGP307 DM10 (LED99)", asset_path: "photometric/BGP307-LED99-4S_830-PSA-DM10.ldt",
+        bytes: include_bytes!("../../../assets/photometric/BGP307-LED99-4S_830-PSA-DM10.ldt") },
+    EmbeddedLdt { label: "BGP307 DRN2 (LED99)", asset_path: "photometric/BGP307-LED99-4S_830-PSA-DRN2.ldt",
+        bytes: include_bytes!("../../../assets/photometric/BGP307-LED99-4S_830-PSA-DRN2.ldt") },
+    EmbeddedLdt { label: "BGP307 DX70 (LED99)", asset_path: "photometric/BGP307-LED99-4S_830-PSA-DX70.ldt",
+        bytes: include_bytes!("../../../assets/photometric/BGP307-LED99-4S_830-PSA-DX70.ldt") },
+];
+
 impl Default for LdtLibrary {
     fn default() -> Self {
         Self {
-            profiles: vec![
-                ("ACME Road Runner".into(), "photometric/acme_road.ldt".into()),
-                ("BGP307 DM10 (LED84)".into(), "photometric/BGP307-LED84-4S_830-PSA-DM10.ldt".into()),
-                ("BGP307 DRN2 (LED84)".into(), "photometric/BGP307-LED84-4S_830-PSA-DRN2.ldt".into()),
-                ("BGP307 DX70 (LED84)".into(), "photometric/BGP307-LED84-4S_830-PSA-DX70.ldt".into()),
-                ("BGP307 DM10 (LED99)".into(), "photometric/BGP307-LED99-4S_830-PSA-DM10.ldt".into()),
-                ("BGP307 DRN2 (LED99)".into(), "photometric/BGP307-LED99-4S_830-PSA-DRN2.ldt".into()),
-                ("BGP307 DX70 (LED99)".into(), "photometric/BGP307-LED99-4S_830-PSA-DX70.ldt".into()),
-            ],
+            profiles: EMBEDDED_LDTS.iter()
+                .map(|e| (e.label.to_string(), e.asset_path.to_string()))
+                .collect(),
             current: 0,
         }
     }
@@ -181,14 +199,15 @@ fn rebuild_scene(
     let profile = asset_server.load::<bevy::light::PhotometricProfile>(ldt_path.clone());
     let warm = Color::srgb(1.0, 0.72, 0.42);
 
-    // Load current LDT for cubemap cookie generation
+    // Parse current embedded LDT (works on both native and WASM)
+    let current_ldt_bytes = EMBEDDED_LDTS[ldt_lib.current].bytes;
+    let current_ldt_text = String::from_utf8_lossy(current_ldt_bytes);
+    let current_ldt_parsed = parse_ldt(&current_ldt_text).ok();
+
+    // Generate cubemap cookie from LDT
     let cookie_image = if *mode == RenderMode::CubemapCookie || *mode == RenderMode::SideBySide {
-        let full_path = format!("assets/{ldt_path}");
-        if let Ok(ldt_bytes) = std::fs::read(&full_path) {
-            let ldt_text = String::from_utf8_lossy(&ldt_bytes);
-            if let Ok(ldt) = parse_ldt(&ldt_text) {
-                Some(images.add(generate_cubemap_cookie(&ldt, 128)))
-            } else { None }
+        if let Some(ref ldt) = current_ldt_parsed {
+            Some(images.add(generate_cubemap_cookie(ldt, 128)))
         } else { None }
     } else { None };
 
@@ -203,10 +222,11 @@ fn rebuild_scene(
     match *mode {
         RenderMode::SideBySide => {
             let gap = 18.0;
-            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 1.5, RenderMode::Plain, warm, &profile, None, &ldt_path, "Plain", &vis);
-            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, cookie_image.clone(), &ldt_path, "Cookie", &vis);
-            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 0.5, RenderMode::MultiSpot, warm, &profile, None, &ldt_path, "Multi-spot", &vis);
-            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 1.5, RenderMode::Native, warm, &profile, None, &ldt_path, "Native", &vis);
+            let ldt_ref = current_ldt_parsed.as_ref();
+            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 1.5, RenderMode::Plain, warm, &profile, None, ldt_ref, "Plain", &vis);
+            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, cookie_image.clone(), ldt_ref, "Cookie", &vis);
+            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 0.5, RenderMode::MultiSpot, warm, &profile, None, ldt_ref, "Multi-spot", &vis);
+            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 1.5, RenderMode::Native, warm, &profile, None, ldt_ref, "Native", &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "SIDE-BY-SIDE: Plain({l1}) | Unity/UE({l2}) | Multi-spot({l3}) | Native({l4}) lights\n\
@@ -225,7 +245,7 @@ fn rebuild_scene(
                 RenderMode::CubemapCookie => "UNITY/UNREAL (single spot from beam angle)",
                 _ => unreachable!(),
             };
-            let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, 0.0, *mode, warm, &profile, cookie_image.clone(), &ldt_path, label, &vis);
+            let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, 0.0, *mode, warm, &profile, cookie_image.clone(), current_ldt_parsed.as_ref(), label, &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "{label}: {pi} luminaires, {tl} lights\n\
@@ -250,7 +270,7 @@ fn spawn_road_strip(
     warm: Color,
     profile: &Handle<bevy::light::PhotometricProfile>,
     cookie_image: Option<Handle<Image>>,
-    ldt_path: &str,
+    parsed_ldt: Option<&LdtData>,
     _label: &str,
     vis: &VisHelpers,
 ) -> (u32, u32) {
@@ -528,28 +548,7 @@ fn spawn_road_strip(
 
     // --- Ground heatmap (H toggle) ---
     if vis.heatmap {
-        // Parse current LDT for heatmap sampling
-        let full_ldt_path = format!("assets/{ldt_path}");
-        let ldt_data = match std::fs::read(&full_ldt_path) {
-            Ok(bytes) => {
-                let text = String::from_utf8_lossy(&bytes);
-                match parse_ldt(&text) {
-                    Ok(data) => {
-                        info!("Heatmap: loaded '{}', {} C-planes, {} gamma angles",
-                            ldt_path, data.c_angles.len(), data.gamma_angles.len());
-                        Some(data)
-                    }
-                    Err(e) => {
-                        warn!("Heatmap: failed to parse '{}': {}", ldt_path, e);
-                        None
-                    }
-                }
-            }
-            Err(e) => {
-                warn!("Heatmap: failed to read '{}': {}", full_ldt_path, e);
-                None
-            }
-        };
+        let ldt_data = parsed_ldt;
 
         // Collect luminaire positions
         let mut light_positions: Vec<(Vec3, f32)> = Vec::new(); // (pos, side)
@@ -596,7 +595,7 @@ fn spawn_road_strip(
                     let intensity = match mode {
                         RenderMode::Native => {
                             // Per-fragment angular lookup — the correct approach
-                            if let Some(ref ldt) = ldt_data {
+                            if let Some(ldt) = ldt_data {
                                 sample_ldt(ldt, c_deg, gamma_deg) as f32 * 100.0
                             } else {
                                 10000.0
@@ -606,7 +605,7 @@ fn spawn_road_strip(
                             // Cubemap cookie projection (Unity/Unreal approach).
                             // Sample the LDT via the cubemap UV mapping, which
                             // introduces projective distortion at grazing angles.
-                            if let Some(ref ldt) = ldt_data {
+                            if let Some(ldt) = ldt_data {
                                 // Reconstruct the cubemap lookup:
                                 // 1. Find which cube face this direction hits
                                 // 2. Compute face UV (projective division)
@@ -648,7 +647,7 @@ fn spawn_road_strip(
                             // add up. Where no cone reaches, intensity is zero.
                             // This is a reasonable approximation but shows discrete
                             // cone boundaries vs native's smooth distribution.
-                            if let Some(ref ldt) = ldt_data {
+                            if let Some(ldt) = ldt_data {
                                 let spots: [(Vec3, f32, f32, f32); 5] = [
                                     (Vec3::NEG_Y, 1.1, 0.4, 0.25),
                                     (Vec3::new(0.0, -5.0, 8.0).normalize(), 1.2, 0.3, 0.30),
