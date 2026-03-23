@@ -1,7 +1,7 @@
 //! Photometric Lighting Comparison
 //!
 //! Controls:
-//!   1-4     — Mode: Plain / Multi-spot / Native / Side-by-side
+//!   1-5     — Mode: Plain / Multi-spot (eulumdat-bevy) / Native / Side-by-side / Unity/UE
 //!   B       — Toggle bollards (vertical reference objects)
 //!   G       — Toggle building facades (side walls)
 //!   P       — Toggle person-scale figures
@@ -31,7 +31,14 @@ const POLE_SPACING: f32 = MOUNTING_HEIGHT * 3.5;
 fn road_width() -> f32 { NUM_LANES as f32 * LANE_WIDTH }
 
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
-enum RenderMode { Plain, MultiSpot, Native, SideBySide }
+enum RenderMode {
+    Plain,
+    MultiSpot,
+    Native,
+    SideBySide,
+    /// Single SpotLight per luminaire with beam angle from IES — typical Unity/Unreal approach
+    CubemapCookie,
+}
 impl Default for RenderMode { fn default() -> Self { RenderMode::SideBySide } }
 
 /// Toggleable visualization helpers.
@@ -99,6 +106,7 @@ fn handle_input(
     else if keys.just_pressed(KeyCode::Digit2) { *mode = RenderMode::MultiSpot; }
     else if keys.just_pressed(KeyCode::Digit3) { *mode = RenderMode::Native; }
     else if keys.just_pressed(KeyCode::Digit4) { *mode = RenderMode::SideBySide; }
+    else if keys.just_pressed(KeyCode::Digit5) { *mode = RenderMode::CubemapCookie; }
 
     if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; }
     if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; }
@@ -132,14 +140,15 @@ fn rebuild_scene(
 
     match *mode {
         RenderMode::SideBySide => {
-            let gap = 20.0;
-            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, -gap, RenderMode::Plain, warm, &profile, "Plain", &vis);
-            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, 0.0, RenderMode::MultiSpot, warm, &profile, "Multi-spot", &vis);
-            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, gap, RenderMode::Native, warm, &profile, "Native", &vis);
+            let gap = 18.0;
+            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, -gap * 1.5, RenderMode::Plain, warm, &profile, "Plain", &vis);
+            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, "Cookie", &vis);
+            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, gap * 0.5, RenderMode::MultiSpot, warm, &profile, "Multi-spot", &vis);
+            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, gap * 1.5, RenderMode::Native, warm, &profile, "Native", &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
-                    "SIDE-BY-SIDE: Left=Plain({l1}) | Center=Multi-spot({l2}) | Right=Native({l3}) lights\n\
-                     1-4:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
+                    "SIDE-BY-SIDE: Plain({l1}) | Unity/UE({l2}) | Multi-spot({l3}) | Native({l4}) lights\n\
+                     1-5:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
                      {vis_line}"
                 ));
             }
@@ -147,8 +156,9 @@ fn rebuild_scene(
         _ => {
             let label = match *mode {
                 RenderMode::Plain => "PLAIN",
-                RenderMode::MultiSpot => "MULTI-SPOT",
+                RenderMode::MultiSpot => "MULTI-SPOT (eulumdat-bevy)",
                 RenderMode::Native => "NATIVE",
+                RenderMode::CubemapCookie => "UNITY/UNREAL (single spot from beam angle)",
                 _ => unreachable!(),
             };
             let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, 0.0, *mode, warm, &profile, label, &vis);
@@ -382,6 +392,28 @@ fn spawn_road_strip(
                 ));
                 total_lights += 1;
             }
+            RenderMode::CubemapCookie => {
+                // Unity/Unreal approach: single SpotLight with beam angle from IES.
+                // Collapses the full 2D angular distribution to a single cone angle.
+                // Loses all asymmetry — a road luminaire looks like a symmetric downlight.
+                commands.spawn((
+                    SpotLight {
+                        color: warm,
+                        intensity: 300_000.0,
+                        range: 20.0,
+                        // Beam angle ~70° (typical IES beam angle for a road luminaire)
+                        // but the real distribution is highly asymmetric — this loses that
+                        outer_angle: 1.22, // ~70 degrees
+                        inner_angle: 0.52, // ~30 degrees
+                        shadow_maps_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_translation(pos)
+                        .looking_at(pos - Vec3::Y * 5.0, Vec3::Z),
+                    SceneEntity,
+                ));
+                total_lights += 1;
+            }
             RenderMode::MultiSpot => {
                 commands.spawn((PointLight { color: warm, intensity: 80_000.0, range: 20.0, shadow_maps_enabled: false, ..default() },
                     Transform::from_translation(pos), SceneEntity));
@@ -477,6 +509,14 @@ fn spawn_road_strip(
                             let spot_main = (down_dot * 2.0).clamp(0.0, 1.0).powi(3);
                             let spot_throw = (along_road * 1.5).clamp(0.0, 1.0).powi(2);
                             (spot_main * 5000.0 + spot_throw * 8000.0)
+                        }
+                        RenderMode::CubemapCookie => {
+                            // Single spot cone approximation (Unity/Unreal style)
+                            let dir = -to_light / dist;
+                            let down_dot = -dir.y;
+                            // Spot cone: ~70° outer, ~30° inner
+                            let cone = ((down_dot - 0.34) / (0.87 - 0.34)).clamp(0.0, 1.0);
+                            cone * cone * 15000.0
                         }
                         RenderMode::Plain | RenderMode::SideBySide => {
                             // Uniform point light

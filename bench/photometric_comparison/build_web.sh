@@ -15,7 +15,7 @@ wasm-bindgen \
     --out-dir web \
     --out-name photometric_comparison \
     --target web \
-    ../../target/wasm32-unknown-unknown/release/photometric-comparison.wasm
+    target/wasm32-unknown-unknown/release/photometric-comparison.wasm
 
 echo "=== Build complete ==="
 echo "Files in web/:"
