@@ -9,6 +9,7 @@ edition = "2024"
 bevy = { path = "../..", default-features = true, features = [
     "pbr_photometric_lights",
     "pbr_clustered_decals",
+    "pbr_light_textures",
 ] }
 
 # Optimize for WASM release

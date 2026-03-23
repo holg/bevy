@@ -15,10 +15,13 @@
 use std::f32::consts::PI;
 
 use bevy::{
+    camera::primitives::CubemapLayout,
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
-    light::{ColorTemperature, PhotometricLight, PhotometricPlugin,
+    image::Image,
+    light::{ColorTemperature, PhotometricLight, PhotometricPlugin, PointLightTexture,
             photometric::{LdtData, parse_ldt, sample_ldt}},
     prelude::*,
+    asset::RenderAssetUsages,
 };
 
 const ROAD_LENGTH: f32 = 60.0;
@@ -123,12 +126,26 @@ fn rebuild_scene(
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     mut text_query: Query<&mut Text, With<InfoText>>,
 ) {
     for e in &old { commands.entity(e).despawn(); }
 
     let profile = asset_server.load("photometric/acme_road.ldt");
     let warm = Color::srgb(1.0, 0.72, 0.42);
+
+    // Generate cubemap cookie from LDT data (for Unity/UE mode)
+    let cookie_image = if *mode == RenderMode::CubemapCookie || *mode == RenderMode::SideBySide {
+        let ldt_bytes = include_bytes!("../../../assets/photometric/acme_road.ldt");
+        let ldt_text = String::from_utf8_lossy(ldt_bytes);
+        if let Ok(ldt) = parse_ldt(&ldt_text) {
+            Some(images.add(generate_cubemap_cookie(&ldt, 128)))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let vis_line = format!(
         "B:bollards[{}] G:facades[{}] P:persons[{}] H:heatmap[{}]",
@@ -141,10 +158,10 @@ fn rebuild_scene(
     match *mode {
         RenderMode::SideBySide => {
             let gap = 18.0;
-            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, -gap * 1.5, RenderMode::Plain, warm, &profile, "Plain", &vis);
-            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, "Cookie", &vis);
-            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, gap * 0.5, RenderMode::MultiSpot, warm, &profile, "Multi-spot", &vis);
-            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, gap * 1.5, RenderMode::Native, warm, &profile, "Native", &vis);
+            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 1.5, RenderMode::Plain, warm, &profile, None, "Plain", &vis);
+            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, cookie_image.clone(), "Cookie", &vis);
+            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 0.5, RenderMode::MultiSpot, warm, &profile, None, "Multi-spot", &vis);
+            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 1.5, RenderMode::Native, warm, &profile, None, "Native", &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "SIDE-BY-SIDE: Plain({l1}) | Unity/UE({l2}) | Multi-spot({l3}) | Native({l4}) lights\n\
@@ -161,7 +178,7 @@ fn rebuild_scene(
                 RenderMode::CubemapCookie => "UNITY/UNREAL (single spot from beam angle)",
                 _ => unreachable!(),
             };
-            let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, 0.0, *mode, warm, &profile, label, &vis);
+            let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, 0.0, *mode, warm, &profile, cookie_image.clone(), label, &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "{label}: {pi} luminaires, {tl} lights\n\
@@ -178,10 +195,12 @@ fn spawn_road_strip(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
+    images: &mut ResMut<Assets<Image>>,
     x_offset: f32,
     mode: RenderMode,
     warm: Color,
     profile: &Handle<bevy::light::PhotometricProfile>,
+    cookie_image: Option<Handle<Image>>,
     _label: &str,
     vis: &VisHelpers,
 ) -> (u32, u32) {
@@ -393,25 +412,27 @@ fn spawn_road_strip(
                 total_lights += 1;
             }
             RenderMode::CubemapCookie => {
-                // Unity/Unreal approach: single SpotLight with beam angle from IES.
-                // Collapses the full 2D angular distribution to a single cone angle.
-                // Loses all asymmetry — a road luminaire looks like a symmetric downlight.
-                commands.spawn((
-                    SpotLight {
+                // Unity/Unreal approach: PointLight + cubemap cookie texture.
+                // The IES/LDT distribution is baked into a cubemap and projected
+                // from the light's perspective. Preserves some angular variation
+                // but is fundamentally a projective approach, not per-fragment angular.
+                let mut light_cmd = commands.spawn((
+                    PointLight {
                         color: warm,
                         intensity: 300_000.0,
                         range: 20.0,
-                        // Beam angle ~70° (typical IES beam angle for a road luminaire)
-                        // but the real distribution is highly asymmetric — this loses that
-                        outer_angle: 1.22, // ~70 degrees
-                        inner_angle: 0.52, // ~30 degrees
                         shadow_maps_enabled: false,
                         ..default()
                     },
-                    Transform::from_translation(pos)
-                        .looking_at(pos - Vec3::Y * 5.0, Vec3::Z),
+                    Transform::from_translation(pos),
                     SceneEntity,
                 ));
+                if let Some(ref cookie) = cookie_image {
+                    light_cmd.insert(PointLightTexture {
+                        image: cookie.clone(),
+                        cubemap_layout: CubemapLayout::SequenceVertical,
+                    });
+                }
                 total_lights += 1;
             }
             RenderMode::MultiSpot => {
@@ -572,6 +593,90 @@ fn update_fps(
             }
         }
     }
+}
+
+/// Generate a cubemap cookie texture from LDT data.
+/// This is what Unity/Unreal do: bake the photometric distribution into a
+/// cubemap and use it as a light cookie (projective texture).
+///
+/// Returns a packed vertical sequence image (1 column × 6 faces).
+fn generate_cubemap_cookie(ldt: &LdtData, face_size: u32) -> Image {
+    let width = face_size;
+    let height = face_size * 6; // 6 faces stacked vertically
+    let mut pixels = vec![0u8; (width * height * 4) as usize]; // RGBA8
+
+    // Face order for SequenceVertical: +X, -X, +Y, -Y, -Z, +Z
+    let face_dirs: [(Vec3, Vec3, Vec3); 6] = [
+        // (right, up, forward) for each face — matching the shader's cubemap_uv
+        (Vec3::Z, -Vec3::Y, Vec3::X),      // +X: face_uv = (z, -y) / x
+        (-Vec3::Z, -Vec3::Y, -Vec3::X),     // -X: face_uv = (-z, -y) / -x
+        (Vec3::X, -Vec3::Z, Vec3::Y),       // +Y: face_uv = (x, -z) / y
+        (Vec3::X, Vec3::Z, -Vec3::Y),       // -Y: face_uv = (x, z) / -y
+        (Vec3::X, Vec3::Y, Vec3::Z),        // +Z: face_uv = (x, y) / z  (note: -Z face in cubemap)
+        (Vec3::X, -Vec3::Y, -Vec3::Z),      // -Z: face_uv = (x, -y) / -z (note: +Z face in cubemap)
+    ];
+
+    // Find max intensity for normalization
+    let mut max_val = 0.0f32;
+    for face in 0..6u32 {
+        let (right, up, forward) = face_dirs[face as usize];
+        for py in 0..face_size {
+            for px in 0..face_size {
+                // Map pixel to [-1, 1] range
+                let u = (px as f32 + 0.5) / face_size as f32 * 2.0 - 1.0;
+                let v = (py as f32 + 0.5) / face_size as f32 * 2.0 - 1.0;
+                let dir = (forward + right * u + up * v).normalize();
+
+                // Convert direction to (C, gamma) angles
+                let gamma = (-dir.y).acos().to_degrees(); // 0=nadir, 90=horizontal
+                let c = dir.x.atan2(dir.z).to_degrees();
+                let c = if c < 0.0 { c + 360.0 } else { c };
+
+                let intensity = sample_ldt(ldt, c, gamma);
+                if intensity > max_val { max_val = intensity; }
+            }
+        }
+    }
+    if max_val < 0.001 { max_val = 1.0; }
+
+    // Render faces
+    for face in 0..6u32 {
+        let (right, up, forward) = face_dirs[face as usize];
+        let y_offset = face * face_size;
+
+        for py in 0..face_size {
+            for px in 0..face_size {
+                let u = (px as f32 + 0.5) / face_size as f32 * 2.0 - 1.0;
+                let v = (py as f32 + 0.5) / face_size as f32 * 2.0 - 1.0;
+                let dir = (forward + right * u + up * v).normalize();
+
+                let gamma = (-dir.y).acos().to_degrees();
+                let c = dir.x.atan2(dir.z).to_degrees();
+                let c = if c < 0.0 { c + 360.0 } else { c };
+
+                let intensity = sample_ldt(ldt, c, gamma);
+                let val = (intensity / max_val * 255.0).clamp(0.0, 255.0) as u8;
+
+                let idx = ((y_offset + py) * width + px) as usize * 4;
+                pixels[idx] = val;     // R (only R channel is read)
+                pixels[idx + 1] = val; // G
+                pixels[idx + 2] = val; // B
+                pixels[idx + 3] = 255; // A
+            }
+        }
+    }
+
+    Image::new(
+        bevy::render::render_resource::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        pixels,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
 }
 
 /// Map a 0..1 value to a heatmap color (blue → cyan → green → yellow → red).
