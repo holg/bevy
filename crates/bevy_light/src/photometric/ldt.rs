@@ -334,17 +334,23 @@ fn build_profile(
 
 /// Sample intensity from LDT data with symmetry expansion and interpolation.
 fn sample_ldt(data: &LdtData, c_deg: f32, gamma_deg: f32) -> f32 {
-    // If gamma is outside the measured range, intensity is zero
+    // Clamp gamma to measured range. Beyond max_gamma, use the edge value
+    // (will be 0 if the last measured value is 0, which is typical for downlights).
+    let gamma_clamped = gamma_deg.clamp(0.0, 180.0);
+
+    // If gamma is beyond the last measured angle, return 0
+    // (typical for downlights that only measure 0-90°)
     if !data.gamma_angles.is_empty() {
         let max_gamma = *data.gamma_angles.last().unwrap();
-        let min_gamma = data.gamma_angles[0];
-        if gamma_deg > max_gamma || gamma_deg < min_gamma {
+        if gamma_clamped > max_gamma {
             return 0.0;
         }
     }
 
-    // Resolve symmetry to get effective C-plane angle
-    let c_effective = resolve_ldt_symmetry(data.isym, c_deg);
+    // Resolve symmetry to get effective C-plane angle.
+    // For Isym=3, this can return negative values; take absolute value
+    // since the distribution is symmetric about the reference plane.
+    let c_effective = resolve_ldt_symmetry(data.isym, c_deg).abs();
 
     // Find interpolation parameters
     let c_interp = find_interp(&data.c_angles, c_effective);
@@ -375,36 +381,37 @@ fn sample_ldt(data: &LdtData, c_deg: f32, gamma_deg: f32) -> f32 {
 /// - Isym=2: symmetry about C0-C180 plane (data 0-180, mirror for 180-360)
 /// - Isym=3: symmetry about C90-C270 plane (data 0-180, mirror for 180-360 shifted)
 /// - Isym=4: quadrant symmetry (data 0-90, mirror for other quadrants)
+/// Resolve EULUMDAT symmetry types.
+///
+/// Returns the effective C-plane angle within the stored data range.
+/// Matches eulumdat-rs SymmetryHandler::get_intensity_at logic exactly.
 fn resolve_ldt_symmetry(isym: u32, c_deg: f32) -> f32 {
-    let mut c = c_deg % 360.0;
-    if c < 0.0 { c += 360.0; }
+    let c = c_deg.rem_euclid(360.0);
 
     match isym {
-        1 => 0.0, // All C-planes are the same
+        1 => 0.0, // VerticalAxis: all C-planes identical
         2 => {
-            // Mirror about C0-C180
-            if c > 180.0 { 360.0 - c } else { c }
+            // PlaneC0C180: data for 0..180, mirror 180..360
+            if c <= 180.0 { c } else { 360.0 - c }
         }
         3 => {
-            // Symmetry about C90-C270
-            // Data is stored for C270-C90 (i.e., C270, C280, ..., C0, ..., C90)
-            // which maps to -90..+90, stored as 0..180 relative.
-            // Mirror: if c > 180, use 360-c
-            if c > 180.0 { 360.0 - c } else { c }
-        }
-        4 => {
-            // Quadrant symmetry: data for 0-90
-            if c > 270.0 {
-                360.0 - c
-            } else if c > 180.0 {
-                c - 180.0
-            } else if c > 90.0 {
-                180.0 - c
+            // PlaneC90C270: data for 0..180 (representing C270..C90 via the plane)
+            // eulumdat-rs: shifted = (c+90) % 360
+            //   if shifted <= 180: effective = shifted - 90
+            //   else: effective = 270 - shifted
+            let shifted = (c + 90.0).rem_euclid(360.0);
+            if shifted <= 180.0 {
+                shifted - 90.0
             } else {
-                c
+                270.0 - shifted
             }
         }
-        _ => c, // Isym=0 or unknown: use as-is
+        4 => {
+            // BothPlanes: fold into 0..90
+            let c_half = if c <= 180.0 { c } else { 360.0 - c };
+            if c_half <= 90.0 { c_half } else { 180.0 - c_half }
+        }
+        _ => c, // Isym=0: full data
     }
 }
 

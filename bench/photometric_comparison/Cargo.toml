@@ -1,0 +1,12 @@
+[package]
+name = "photometric-comparison"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+bevy = { path = "../..", default-features = true, features = [
+    "pbr_photometric_lights",
+    "pbr_clustered_decals",
+] }

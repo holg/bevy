@@ -165,7 +165,6 @@ fn setup(
             PhotometricLight {
                 profile: road_profile.clone(),
             },
-            // 2000K SON-TPP lamp (from the LDT metadata)
             ColorTemperature::new(2000.0),
             Transform::from_translation(housing_pos),
         ));
