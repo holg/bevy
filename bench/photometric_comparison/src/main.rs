@@ -36,7 +36,7 @@ struct SceneEntity;
 struct InfoText;
 
 #[derive(Component)]
-struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32 }
+struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32, auto_orbit: bool }
 
 fn main() {
     App::new()
@@ -57,7 +57,7 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera3d::default(),
         Transform::from_xyz(-15.0, 12.0, 25.0).looking_at(Vec3::new(0.0, 2.0, 0.0), Vec3::Y),
-        OrbitCamera { focus: Vec3::new(0.0, 2.0, 0.0), radius: 40.0, yaw: -0.5, pitch: 0.4 },
+        OrbitCamera { focus: Vec3::new(0.0, 2.0, 0.0), radius: 40.0, yaw: -0.5, pitch: 0.4, auto_orbit: true },
     ));
 }
 
@@ -93,7 +93,7 @@ fn rebuild_scene(
                 *t = Text::new(format!(
                     "SIDE-BY-SIDE COMPARISON\n\
                      Left: Plain ({l1} lights)  |  Center: Multi-spot ({l2} lights)  |  Right: Native ({l3} lights)\n\
-                     Press 1-4 to switch"
+                     1-4: mode | WASD: pan | Arrows: orbit | R/F: zoom | Space: auto-orbit"
                 ));
             }
         }
@@ -107,7 +107,7 @@ fn rebuild_scene(
             let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, 0.0, *mode, warm, &profile, label);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
-                    "{label}: {pi} luminaires, {tl} lights\nPress 1-4 to switch"
+                    "{label}: {pi} luminaires, {tl} lights\n1-4: mode | WASD: pan | Arrows: orbit | R/F: zoom | Space: auto-orbit"
                 ));
             }
         }
@@ -273,9 +273,46 @@ fn spawn_road_strip(
     (pi, total_lights)
 }
 
-fn orbit_camera(time: Res<Time>, mut q: Query<(&mut Transform, &mut OrbitCamera)>) {
+fn orbit_camera(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut q: Query<(&mut Transform, &mut OrbitCamera)>,
+) {
+    let dt = time.delta_secs();
+
     for (mut t, mut o) in &mut q {
-        o.yaw += time.delta_secs() * 0.08;
+        // Space: toggle auto-orbit
+        if keys.just_pressed(KeyCode::Space) {
+            o.auto_orbit = !o.auto_orbit;
+        }
+
+        // Arrow keys: orbit
+        let orbit_speed = 1.5 * dt;
+        if keys.pressed(KeyCode::ArrowLeft) { o.yaw += orbit_speed; }
+        if keys.pressed(KeyCode::ArrowRight) { o.yaw -= orbit_speed; }
+        if keys.pressed(KeyCode::ArrowUp) { o.pitch = (o.pitch + orbit_speed * 0.5).clamp(0.05, 1.4); }
+        if keys.pressed(KeyCode::ArrowDown) { o.pitch = (o.pitch - orbit_speed * 0.5).clamp(0.05, 1.4); }
+
+        // R/F: zoom
+        if keys.pressed(KeyCode::KeyR) { o.radius = (o.radius - 15.0 * dt).clamp(5.0, 80.0); }
+        if keys.pressed(KeyCode::KeyF) { o.radius = (o.radius + 15.0 * dt).clamp(5.0, 80.0); }
+
+        // WASD: pan focus
+        let forward = Vec3::new(-o.yaw.sin(), 0.0, -o.yaw.cos());
+        let right = Vec3::new(o.yaw.cos(), 0.0, -o.yaw.sin());
+        let speed = 10.0 * dt;
+        if keys.pressed(KeyCode::KeyW) { o.focus += forward * speed; }
+        if keys.pressed(KeyCode::KeyS) { o.focus -= forward * speed; }
+        if keys.pressed(KeyCode::KeyA) { o.focus -= right * speed; }
+        if keys.pressed(KeyCode::KeyD) { o.focus += right * speed; }
+        if keys.pressed(KeyCode::KeyQ) { o.focus.y -= speed; }
+        if keys.pressed(KeyCode::KeyE) { o.focus.y += speed; }
+
+        // Auto-orbit
+        if o.auto_orbit {
+            o.yaw += dt * 0.05;
+        }
+
         let x = o.focus.x + o.radius * o.pitch.cos() * o.yaw.cos();
         let y = o.focus.y + o.radius * o.pitch.sin();
         let z = o.focus.z + o.radius * o.pitch.cos() * o.yaw.sin();
