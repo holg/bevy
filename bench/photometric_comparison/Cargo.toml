@@ -12,6 +12,10 @@ bevy = { path = "../..", default-features = true, features = [
     "pbr_light_textures",
 ] }
 
+# GLDF/L3D support
+gldf-rs = { path = "../../../gldf-rs/crates/gldf-rs-lib" }
+gldf-bevy = { path = "../../../gldf-rs/crates/gldf-bevy" }
+
 # Optimize for WASM release
 [profile.wasm-release]
 inherits = "release"

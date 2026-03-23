@@ -23,6 +23,7 @@ use bevy::{
     prelude::*,
     asset::RenderAssetUsages,
 };
+use gldf_rs::{GldfProduct, get_first_l3d_with_ldt};
 
 const ROAD_LENGTH: f32 = 60.0;
 const LANE_WIDTH: f32 = 3.5;
@@ -69,17 +70,71 @@ struct FpsText;
 #[derive(Component)]
 struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32, auto_orbit: bool }
 
+/// GLDF data extracted at startup.
+#[derive(Resource, Default)]
+struct GldfData {
+    /// Parsed LDT from GLDF
+    ldt_text: Option<String>,
+    /// L3D model bytes (OBJ inside ZIP)
+    l3d_bytes: Option<Vec<u8>>,
+    /// Emitter color temperature
+    color_temp_k: Option<i32>,
+    /// Luminous flux
+    luminous_flux: Option<i32>,
+}
+
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, PhotometricPlugin, FrameTimeDiagnosticsPlugin::default()))
         .init_resource::<RenderMode>()
         .init_resource::<VisHelpers>()
-        .add_systems(Startup, setup_camera)
+        .add_systems(Startup, (load_gldf, setup_camera).chain())
         .add_systems(Update, (handle_input, orbit_camera, update_fps))
         .add_systems(Update, rebuild_scene.run_if(
             resource_changed::<RenderMode>.or_else(resource_changed::<VisHelpers>)
         ))
         .run();
+}
+
+/// Load the GLDF file and extract L3D + LDT data.
+fn load_gldf(mut commands: Commands) {
+    let gldf_bytes = include_bytes!("../../../assets/photometric/05-GLDF-Street-MultiOptic-MultiPower.gldf");
+
+    let mut data = GldfData::default();
+
+    match GldfProduct::load_gldf_from_buf_all(gldf_bytes.to_vec()) {
+        Ok(file_buf) => {
+            // Extract L3D + LDT pair
+            if let Some(l3d_ldt) = get_first_l3d_with_ldt(&file_buf) {
+                info!("GLDF: Found L3D='{}' with LDT='{:?}'",
+                    l3d_ldt.l3d_file_name,
+                    l3d_ldt.ldt_file_name);
+
+                data.ldt_text = l3d_ldt.ldt_as_string();
+                data.l3d_bytes = l3d_ldt.l3d_content;
+
+                // Extract emitter data from the first variant
+                let variant_data = gldf_rs::get_variant_emitter_data(
+                    &file_buf.gldf,
+                    &l3d_ldt.variant_id,
+                );
+                if let Some(first_emitter) = variant_data.emitters.first() {
+                    data.color_temp_k = first_emitter.color_temperature;
+                    data.luminous_flux = first_emitter.luminous_flux;
+                    info!("GLDF emitter: {}K, {} lm",
+                        first_emitter.color_temperature.unwrap_or(0),
+                        first_emitter.luminous_flux.unwrap_or(0));
+                }
+            } else {
+                warn!("GLDF: No L3D+LDT pair found");
+            }
+        }
+        Err(e) => {
+            warn!("Failed to load GLDF: {}", e);
+        }
+    }
+
+    commands.insert_resource(data);
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -122,6 +177,7 @@ fn rebuild_scene(
     mut commands: Commands,
     mode: Res<RenderMode>,
     vis: Res<VisHelpers>,
+    gldf_data: Res<GldfData>,
     old: Query<Entity, With<SceneEntity>>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -132,19 +188,40 @@ fn rebuild_scene(
     for e in &old { commands.entity(e).despawn(); }
 
     let profile = asset_server.load("photometric/acme_road.ldt");
-    let warm = Color::srgb(1.0, 0.72, 0.42);
 
-    // Generate cubemap cookie from LDT data (for Unity/UE mode)
+    // Use GLDF color temperature if available, otherwise default warm white
+    let cct = gldf_data.color_temp_k.unwrap_or(2700) as f32;
+    let warm = bevy::color::color_temperature::kelvin_to_linear_rgb(cct).into();
+
+    // Use GLDF LDT data for cubemap cookie if available
+    let ldt_text_for_cookie = gldf_data.ldt_text.as_deref()
+        .unwrap_or_else(|| {
+            // Fallback to embedded acme road
+            ""
+        });
+
     let cookie_image = if *mode == RenderMode::CubemapCookie || *mode == RenderMode::SideBySide {
-        let ldt_bytes = include_bytes!("../../../assets/photometric/acme_road.ldt");
-        let ldt_text = String::from_utf8_lossy(ldt_bytes);
-        if let Ok(ldt) = parse_ldt(&ldt_text) {
+        let ldt_source = if let Some(ref ldt_str) = gldf_data.ldt_text {
+            ldt_str.as_str()
+        } else {
+            let ldt_bytes = include_bytes!("../../../assets/photometric/acme_road.ldt");
+            // This is a bit of a hack — we can't return a reference to a local
+            // so fall back to the embedded file
+            std::str::from_utf8(ldt_bytes).unwrap_or("")
+        };
+        if let Ok(ldt) = parse_ldt(ldt_source) {
             Some(images.add(generate_cubemap_cookie(&ldt, 128)))
         } else {
             None
         }
     } else {
         None
+    };
+
+    let source_label = if gldf_data.ldt_text.is_some() {
+        "GLDF Street MultiOptic"
+    } else {
+        "ACME Road Runner LDT"
     };
 
     let vis_line = format!(
@@ -222,6 +299,11 @@ fn spawn_road_strip(
     let pole_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.4, 0.4, 0.4),
         metallic: 0.7, ..default()
+    });
+    let housing_mat = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.3, 0.3, 0.3),
+        emissive: LinearRgba::new(8.0, 6.0, 3.5, 1.0), // warm glow
+        ..default()
     });
     let white_mat = materials.add(StandardMaterial {
         base_color: Color::srgb(0.9, 0.9, 0.9),
@@ -394,11 +476,19 @@ fn spawn_road_strip(
                 .with_rotation(Quat::from_rotation_z(PI / 2.0)),
             SceneEntity,
         ));
-        // Housing
+        // Housing body (dark)
         commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.6, 0.08, 0.3))),
+            Mesh3d(meshes.add(Cuboid::new(0.6, 0.06, 0.3))),
             MeshMaterial3d(pole_mat.clone()),
-            Transform::from_translation(pos),
+            Transform::from_xyz(pos.x, pos.y + 0.02, pos.z),
+            SceneEntity,
+        ));
+        // Luminous opening (bottom face — the part that emits light)
+        commands.spawn((
+            Mesh3d(meshes.add(Plane3d::default().mesh().size(0.55, 0.25))),
+            MeshMaterial3d(housing_mat.clone()),
+            Transform::from_xyz(pos.x, pos.y - 0.01, pos.z)
+                .with_rotation(Quat::from_rotation_x(std::f32::consts::PI)),
             SceneEntity,
         ));
 
