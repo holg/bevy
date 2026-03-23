@@ -23,7 +23,8 @@ use bevy::{
     prelude::*,
     asset::RenderAssetUsages,
 };
-use gldf_rs::{GldfProduct, get_first_l3d_with_ldt};
+// gldf-rs available for future L3D model loading
+// use gldf_rs::{GldfProduct, get_first_l3d_with_ldt};
 
 const ROAD_LENGTH: f32 = 60.0;
 const LANE_WIDTH: f32 = 3.5;
@@ -70,17 +71,28 @@ struct FpsText;
 #[derive(Component)]
 struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32, auto_orbit: bool }
 
-/// GLDF data extracted at startup.
-#[derive(Resource, Default)]
-struct GldfData {
-    /// Parsed LDT from GLDF
-    ldt_text: Option<String>,
-    /// L3D model bytes (OBJ inside ZIP)
-    l3d_bytes: Option<Vec<u8>>,
-    /// Emitter color temperature
-    color_temp_k: Option<i32>,
-    /// Luminous flux
-    luminous_flux: Option<i32>,
+/// Available LDT profiles with labels.
+#[derive(Resource)]
+struct LdtLibrary {
+    profiles: Vec<(String, String)>, // (label, asset_path)
+    current: usize,
+}
+
+impl Default for LdtLibrary {
+    fn default() -> Self {
+        Self {
+            profiles: vec![
+                ("ACME Road Runner".into(), "photometric/acme_road.ldt".into()),
+                ("BGP307 DM10 (LED84)".into(), "photometric/BGP307-LED84-4S_830-PSA-DM10.ldt".into()),
+                ("BGP307 DRN2 (LED84)".into(), "photometric/BGP307-LED84-4S_830-PSA-DRN2.ldt".into()),
+                ("BGP307 DX70 (LED84)".into(), "photometric/BGP307-LED84-4S_830-PSA-DX70.ldt".into()),
+                ("BGP307 DM10 (LED99)".into(), "photometric/BGP307-LED99-4S_830-PSA-DM10.ldt".into()),
+                ("BGP307 DRN2 (LED99)".into(), "photometric/BGP307-LED99-4S_830-PSA-DRN2.ldt".into()),
+                ("BGP307 DX70 (LED99)".into(), "photometric/BGP307-LED99-4S_830-PSA-DX70.ldt".into()),
+            ],
+            current: 0,
+        }
+    }
 }
 
 fn main() {
@@ -88,53 +100,15 @@ fn main() {
         .add_plugins((DefaultPlugins, PhotometricPlugin, FrameTimeDiagnosticsPlugin::default()))
         .init_resource::<RenderMode>()
         .init_resource::<VisHelpers>()
-        .add_systems(Startup, (load_gldf, setup_camera).chain())
+        .init_resource::<LdtLibrary>()
+        .add_systems(Startup, setup_camera)
         .add_systems(Update, (handle_input, orbit_camera, update_fps))
         .add_systems(Update, rebuild_scene.run_if(
-            resource_changed::<RenderMode>.or_else(resource_changed::<VisHelpers>)
+            resource_changed::<RenderMode>
+                .or_else(resource_changed::<VisHelpers>)
+                .or_else(resource_changed::<LdtLibrary>)
         ))
         .run();
-}
-
-/// Load the GLDF file and extract L3D + LDT data.
-fn load_gldf(mut commands: Commands) {
-    let gldf_bytes = include_bytes!("../../../assets/photometric/05-GLDF-Street-MultiOptic-MultiPower.gldf");
-
-    let mut data = GldfData::default();
-
-    match GldfProduct::load_gldf_from_buf_all(gldf_bytes.to_vec()) {
-        Ok(file_buf) => {
-            // Extract L3D + LDT pair
-            if let Some(l3d_ldt) = get_first_l3d_with_ldt(&file_buf) {
-                info!("GLDF: Found L3D='{}' with LDT='{:?}'",
-                    l3d_ldt.l3d_file_name,
-                    l3d_ldt.ldt_file_name);
-
-                data.ldt_text = l3d_ldt.ldt_as_string();
-                data.l3d_bytes = l3d_ldt.l3d_content;
-
-                // Extract emitter data from the first variant
-                let variant_data = gldf_rs::get_variant_emitter_data(
-                    &file_buf.gldf,
-                    &l3d_ldt.variant_id,
-                );
-                if let Some(first_emitter) = variant_data.emitters.first() {
-                    data.color_temp_k = first_emitter.color_temperature;
-                    data.luminous_flux = first_emitter.luminous_flux;
-                    info!("GLDF emitter: {}K, {} lm",
-                        first_emitter.color_temperature.unwrap_or(0),
-                        first_emitter.luminous_flux.unwrap_or(0));
-                }
-            } else {
-                warn!("GLDF: No L3D+LDT pair found");
-            }
-        }
-        Err(e) => {
-            warn!("Failed to load GLDF: {}", e);
-        }
-    }
-
-    commands.insert_resource(data);
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -159,6 +133,7 @@ fn handle_input(
     keys: Res<ButtonInput<KeyCode>>,
     mut mode: ResMut<RenderMode>,
     mut vis: ResMut<VisHelpers>,
+    mut ldt_lib: ResMut<LdtLibrary>,
 ) {
     if keys.just_pressed(KeyCode::Digit1) { *mode = RenderMode::Plain; }
     else if keys.just_pressed(KeyCode::Digit2) { *mode = RenderMode::MultiSpot; }
@@ -170,6 +145,18 @@ fn handle_input(
     if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; }
     if keys.just_pressed(KeyCode::KeyP) { vis.persons = !vis.persons; }
     if keys.just_pressed(KeyCode::KeyH) { vis.heatmap = !vis.heatmap; }
+
+    // Cycle LDT profiles with [ and ]
+    if keys.just_pressed(KeyCode::BracketLeft) {
+        let len = ldt_lib.profiles.len();
+        ldt_lib.current = (ldt_lib.current + len - 1) % len;
+        // Force rebuild by toggling vis (hack — ideally we'd have a separate changed detection)
+        vis.set_changed();
+    }
+    if keys.just_pressed(KeyCode::BracketRight) {
+        ldt_lib.current = (ldt_lib.current + 1) % ldt_lib.profiles.len();
+        vis.set_changed();
+    }
 }
 
 /// Rebuild everything on mode or vis change.
@@ -177,7 +164,7 @@ fn rebuild_scene(
     mut commands: Commands,
     mode: Res<RenderMode>,
     vis: Res<VisHelpers>,
-    gldf_data: Res<GldfData>,
+    ldt_lib: Res<LdtLibrary>,
     old: Query<Entity, With<SceneEntity>>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -187,42 +174,21 @@ fn rebuild_scene(
 ) {
     for e in &old { commands.entity(e).despawn(); }
 
-    let profile = asset_server.load("photometric/acme_road.ldt");
+    let ldt_label = ldt_lib.profiles[ldt_lib.current].0.clone();
+    let ldt_path = ldt_lib.profiles[ldt_lib.current].1.clone();
+    let profile = asset_server.load::<bevy::light::PhotometricProfile>(ldt_path.clone());
+    let warm = Color::srgb(1.0, 0.72, 0.42);
 
-    // Use GLDF color temperature if available, otherwise default warm white
-    let cct = gldf_data.color_temp_k.unwrap_or(2700) as f32;
-    let warm = bevy::color::color_temperature::kelvin_to_linear_rgb(cct).into();
-
-    // Use GLDF LDT data for cubemap cookie if available
-    let ldt_text_for_cookie = gldf_data.ldt_text.as_deref()
-        .unwrap_or_else(|| {
-            // Fallback to embedded acme road
-            ""
-        });
-
+    // Load current LDT for cubemap cookie generation
     let cookie_image = if *mode == RenderMode::CubemapCookie || *mode == RenderMode::SideBySide {
-        let ldt_source = if let Some(ref ldt_str) = gldf_data.ldt_text {
-            ldt_str.as_str()
-        } else {
-            let ldt_bytes = include_bytes!("../../../assets/photometric/acme_road.ldt");
-            // This is a bit of a hack — we can't return a reference to a local
-            // so fall back to the embedded file
-            std::str::from_utf8(ldt_bytes).unwrap_or("")
-        };
-        if let Ok(ldt) = parse_ldt(ldt_source) {
-            Some(images.add(generate_cubemap_cookie(&ldt, 128)))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let source_label = if gldf_data.ldt_text.is_some() {
-        "GLDF Street MultiOptic"
-    } else {
-        "ACME Road Runner LDT"
-    };
+        let full_path = format!("assets/{ldt_path}");
+        if let Ok(ldt_bytes) = std::fs::read(&full_path) {
+            let ldt_text = String::from_utf8_lossy(&ldt_bytes);
+            if let Ok(ldt) = parse_ldt(&ldt_text) {
+                Some(images.add(generate_cubemap_cookie(&ldt, 128)))
+            } else { None }
+        } else { None }
+    } else { None };
 
     let vis_line = format!(
         "B:bollards[{}] G:facades[{}] P:persons[{}] H:heatmap[{}]",
@@ -242,8 +208,10 @@ fn rebuild_scene(
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "SIDE-BY-SIDE: Plain({l1}) | Unity/UE({l2}) | Multi-spot({l3}) | Native({l4}) lights\n\
+                     LDT: {ldt_label} [{}/{}] ([/] to switch)\n\
                      1-5:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
-                     {vis_line}"
+                     {vis_line}",
+                    ldt_lib.current + 1, ldt_lib.profiles.len()
                 ));
             }
         }
@@ -259,8 +227,10 @@ fn rebuild_scene(
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "{label}: {pi} luminaires, {tl} lights\n\
-                     1-4:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
-                     {vis_line}"
+                     LDT: {ldt_label} [{}/{}] ([/] to switch)\n\
+                     1-5:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
+                     {vis_line}",
+                    ldt_lib.current + 1, ldt_lib.profiles.len()
                 ));
             }
         }
