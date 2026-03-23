@@ -57,7 +57,7 @@ struct VisHelpers {
     heatmap: bool,
 }
 impl Default for VisHelpers {
-    fn default() -> Self { Self { bollards: true, facades: true, persons: true, heatmap: true } }
+    fn default() -> Self { Self { bollards: true, facades: true, persons: true, heatmap: false } }
 }
 
 /// Despawned on mode/vis switch.
@@ -70,9 +70,10 @@ struct InfoText;
 #[derive(Component)]
 struct FpsText;
 
-/// Trigger for scene rebuild — only set by handle_input, consumed by rebuild_scene.
-#[derive(Resource, Default)]
-struct RebuildFlag(bool);
+/// Trigger for scene rebuild — incremented by handle_input, consumed by rebuild_scene.
+#[derive(Resource)]
+struct RebuildFlag(u64);
+impl Default for RebuildFlag { fn default() -> Self { Self(1) } } // Start at 1 to trigger initial build
 
 #[derive(Component)]
 struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32, auto_orbit: bool }
@@ -128,7 +129,7 @@ fn main() {
         .add_systems(Startup, setup_camera)
         .init_resource::<RebuildFlag>()
         .add_systems(Update, (handle_input, orbit_camera, update_fps))
-        .add_systems(Update, rebuild_scene.run_if(resource_changed::<RebuildFlag>))
+        .add_systems(Update, rebuild_scene)
         .run();
 }
 
@@ -181,7 +182,7 @@ fn handle_input(
     }
 
     if needs_rebuild {
-        rebuild.0 = !rebuild.0; // flip to trigger resource_changed
+        rebuild.0 += 1;
         info!("rebuild requested: mode={:?}, heatmap={}, ldt={}", *mode, vis.heatmap, ldt_lib.current);
     }
 }
@@ -192,6 +193,8 @@ fn rebuild_scene(
     mode: Res<RenderMode>,
     vis: Res<VisHelpers>,
     ldt_lib: Res<LdtLibrary>,
+    rebuild: Res<RebuildFlag>,
+    mut last_build: Local<u64>,
     old: Query<Entity, With<SceneEntity>>,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -199,9 +202,15 @@ fn rebuild_scene(
     mut images: ResMut<Assets<Image>>,
     mut text_query: Query<&mut Text, With<InfoText>>,
 ) {
+    // Only rebuild when the flag has been incremented
+    if rebuild.0 == *last_build {
+        return;
+    }
+    *last_build = rebuild.0;
+
     let old_count = old.iter().count();
     for e in &old { commands.entity(e).despawn(); }
-    info!("rebuild_scene: mode={:?}, ldt={}, despawned {} entities", *mode, ldt_lib.current, old_count);
+    info!("rebuild_scene: mode={:?}, ldt={}, heatmap={}, despawned {} entities", *mode, ldt_lib.current, vis.heatmap, old_count);
 
     let ldt_label = ldt_lib.profiles[ldt_lib.current].0.clone();
     let warm = Color::srgb(1.0, 0.72, 0.42);

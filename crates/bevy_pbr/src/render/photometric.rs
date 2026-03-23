@@ -30,6 +30,8 @@ use bevy_render::{
     GpuResourceAppExt, Render, RenderApp, RenderSystems,
 };
 
+use tracing::info;
+
 use crate::binding_arrays_are_usable;
 
 /// GPU-side descriptor for a photometric profile, packed as a Mat4.
@@ -263,6 +265,12 @@ pub struct PhotometricRenderPlugin;
 
 impl Plugin for PhotometricRenderPlugin {
     fn build(&self, app: &mut App) {
+        if cfg!(feature = "pbr_photometric_lights") {
+            info!("PhotometricRenderPlugin: pbr_photometric_lights feature ENABLED");
+        } else {
+            info!("PhotometricRenderPlugin: pbr_photometric_lights feature DISABLED");
+        }
+
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
