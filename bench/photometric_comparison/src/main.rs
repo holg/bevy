@@ -44,7 +44,7 @@ enum RenderMode {
     /// Single SpotLight per luminaire with beam angle from IES — typical Unity/Unreal approach
     CubemapCookie,
 }
-impl Default for RenderMode { fn default() -> Self { RenderMode::SideBySide } }
+impl Default for RenderMode { fn default() -> Self { RenderMode::Native } }
 
 /// Toggleable visualization helpers.
 #[derive(Resource)]
@@ -138,8 +138,8 @@ fn handle_input(
     if keys.just_pressed(KeyCode::Digit1) { *mode = RenderMode::Plain; }
     else if keys.just_pressed(KeyCode::Digit2) { *mode = RenderMode::MultiSpot; }
     else if keys.just_pressed(KeyCode::Digit3) { *mode = RenderMode::Native; }
-    else if keys.just_pressed(KeyCode::Digit4) { *mode = RenderMode::SideBySide; }
-    else if keys.just_pressed(KeyCode::Digit5) { *mode = RenderMode::CubemapCookie; }
+    else if keys.just_pressed(KeyCode::Digit4) { *mode = RenderMode::CubemapCookie; }
+    else if keys.just_pressed(KeyCode::Digit5) { *mode = RenderMode::SideBySide; }
 
     if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; }
     if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; }
@@ -201,15 +201,15 @@ fn rebuild_scene(
     match *mode {
         RenderMode::SideBySide => {
             let gap = 18.0;
-            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 1.5, RenderMode::Plain, warm, &profile, None, "Plain", &vis);
-            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, cookie_image.clone(), "Cookie", &vis);
-            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 0.5, RenderMode::MultiSpot, warm, &profile, None, "Multi-spot", &vis);
-            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 1.5, RenderMode::Native, warm, &profile, None, "Native", &vis);
+            let (_, l1) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 1.5, RenderMode::Plain, warm, &profile, None, &ldt_path, "Plain", &vis);
+            let (_, l2) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, -gap * 0.5, RenderMode::CubemapCookie, warm, &profile, cookie_image.clone(), &ldt_path, "Cookie", &vis);
+            let (_, l3) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 0.5, RenderMode::MultiSpot, warm, &profile, None, &ldt_path, "Multi-spot", &vis);
+            let (_, l4) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, gap * 1.5, RenderMode::Native, warm, &profile, None, &ldt_path, "Native", &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "SIDE-BY-SIDE: Plain({l1}) | Unity/UE({l2}) | Multi-spot({l3}) | Native({l4}) lights\n\
                      LDT: {ldt_label} [{}/{}] ([/] to switch)\n\
-                     1-5:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
+                     1:Plain 2:Multi-spot 3:Native 4:Unity/UE 5:Side-by-side | WASD Arrows R/F Space\n\
                      {vis_line}",
                     ldt_lib.current + 1, ldt_lib.profiles.len()
                 ));
@@ -223,12 +223,12 @@ fn rebuild_scene(
                 RenderMode::CubemapCookie => "UNITY/UNREAL (single spot from beam angle)",
                 _ => unreachable!(),
             };
-            let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, 0.0, *mode, warm, &profile, cookie_image.clone(), label, &vis);
+            let (pi, tl) = spawn_road_strip(&mut commands, &mut meshes, &mut materials, &mut images, 0.0, *mode, warm, &profile, cookie_image.clone(), &ldt_path, label, &vis);
             for mut t in &mut text_query {
                 *t = Text::new(format!(
                     "{label}: {pi} luminaires, {tl} lights\n\
                      LDT: {ldt_label} [{}/{}] ([/] to switch)\n\
-                     1-5:mode WASD:pan Arrows:orbit R/F:zoom Space:auto-orbit\n\
+                     1:Plain 2:Multi-spot 3:Native 4:Unity/UE 5:Side-by-side | WASD Arrows R/F Space\n\
                      {vis_line}",
                     ldt_lib.current + 1, ldt_lib.profiles.len()
                 ));
@@ -248,6 +248,7 @@ fn spawn_road_strip(
     warm: Color,
     profile: &Handle<bevy::light::PhotometricProfile>,
     cookie_image: Option<Handle<Image>>,
+    ldt_path: &str,
     _label: &str,
     vis: &VisHelpers,
 ) -> (u32, u32) {
@@ -525,10 +526,14 @@ fn spawn_road_strip(
 
     // --- Ground heatmap (H toggle) ---
     if vis.heatmap {
-        // Parse LDT for native mode sampling
-        let ldt_bytes = include_bytes!("../../../assets/photometric/acme_road.ldt");
-        let ldt_text = String::from_utf8_lossy(ldt_bytes);
-        let ldt_data = parse_ldt(&ldt_text).ok();
+        // Parse current LDT for heatmap sampling
+        let full_ldt_path = format!("assets/{ldt_path}");
+        let ldt_data = std::fs::read(&full_ldt_path)
+            .ok()
+            .and_then(|bytes| {
+                let text = String::from_utf8_lossy(&bytes);
+                parse_ldt(&text).ok()
+            });
 
         // Collect luminaire positions
         let mut light_positions: Vec<(Vec3, f32)> = Vec::new(); // (pos, side)
