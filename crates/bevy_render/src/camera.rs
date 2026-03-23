@@ -11,8 +11,7 @@ use crate::{
     texture::{GpuImage, ManualTextureViews},
     view::{
         ColorGrading, ExtractedView, ExtractedWindows, Msaa, NoIndirectDrawing,
-        RenderExtractedVisibleEntities, RenderVisibleEntities, RenderVisibleEntitiesClass,
-        RetainedViewEntity, ViewUniformOffset, VisibilityExtractionSystemParam,
+        RenderVisibleEntities, RenderVisibleMeshEntities, RetainedViewEntity, ViewUniformOffset,
     },
     Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
 };
@@ -438,7 +437,6 @@ pub fn camera_system(
 }
 
 #[derive(Component, Debug)]
-#[require(RenderVisibleEntities)]
 pub struct ExtractedCamera {
     pub target: Option<NormalizedRenderTarget>,
     pub physical_viewport_size: Option<UVec2>,
@@ -479,12 +477,9 @@ pub fn extract_cameras(
         )>,
     >,
     primary_window: Extract<Query<Entity, With<PrimaryWindow>>>,
-    mut existing_render_visible_entities_cpu_culling: Query<
-        &mut RenderExtractedVisibleEntities,
-        With<RenderVisibleEntities>,
-    >,
+    mut existing_render_visible_entities: Query<&mut RenderVisibleEntities>,
     gpu_preprocessing_support: Res<GpuPreprocessingSupport>,
-    visibility_extraction_system_param: VisibilityExtractionSystemParam,
+    mapper: Extract<Query<RenderEntity>>,
 ) {
     let primary_window = primary_window.iter().next();
     type ExtractedCameraComponents = (
@@ -547,30 +542,20 @@ pub fn extract_cameras(
                 continue;
             }
 
-            let mut render_visible_entities_cpu_culling =
-                match existing_render_visible_entities_cpu_culling.get_mut(render_entity) {
-                    Ok(ref mut existing_render_visible_entities_cpu_culling) => {
-                        mem::take(&mut **existing_render_visible_entities_cpu_culling)
+            let mut render_visible_entities =
+                match existing_render_visible_entities.get_mut(render_entity) {
+                    Ok(ref mut existing_render_visible_entities) => {
+                        mem::take(&mut **existing_render_visible_entities)
                     }
-                    Err(_) => RenderExtractedVisibleEntities::default(),
+                    Err(_) => RenderVisibleEntities::default(),
                 };
 
             for (visibility_class, visible_mesh_entities) in visible_entities.entities.iter() {
-                let render_view_visible_entities = render_visible_entities_cpu_culling
-                    .classes
+                render_visible_entities
+                    .entities
                     .entry(*visibility_class)
-                    .or_default();
-                render_view_visible_entities.entities.clear();
-                for main_entity in visible_mesh_entities {
-                    let render_entity =
-                        match visibility_extraction_system_param.mapper.get(*main_entity) {
-                            Ok(render_entity) => render_entity.entity(),
-                            Err(_) => Entity::PLACEHOLDER,
-                        };
-                    render_view_visible_entities
-                        .entities
-                        .push((render_entity, MainEntity::from(*main_entity)));
-                }
+                    .or_default()
+                    .update_from(&mapper, visible_mesh_entities);
             }
 
             // Don't delete "unused" visibility classes from
@@ -612,7 +597,7 @@ pub fn extract_cameras(
                     color_grading,
                     invert_culling: camera.invert_culling,
                 },
-                render_visible_entities_cpu_culling,
+                render_visible_entities,
                 *frustum,
             ));
 
@@ -791,37 +776,6 @@ impl DirtySpecializations {
         self.views.contains(&view)
     }
 
-    /// Given a main entity known to be visible, returns it alongside any render
-    /// entity it corresponds to.
-    ///
-    /// If no render entity corresponds to the given main entity, the render
-    /// entity returned will be [`Entity::PLACEHOLDER`].
-    fn entity_pair_from_visible_main_entity<'a>(
-        &'a self,
-        render_visible_mesh_entities: &'a RenderVisibleEntitiesClass,
-        main_entity: &'a MainEntity,
-    ) -> Option<(&'a Entity, &'a MainEntity)> {
-        // Check entities with CPU culling.
-        if let Ok(index) = render_visible_mesh_entities
-            .entities_cpu_culling
-            .binary_search_by_key(main_entity, |(_, main_entity)| *main_entity)
-        {
-            let (key, value) = &render_visible_mesh_entities.entities_cpu_culling[index];
-            return Some((key, value));
-        }
-
-        // Check entities that opted out of CPU culling.
-        if let Some(entity) = render_visible_mesh_entities
-            .entities_gpu_culling
-            .get(main_entity)
-        {
-            return Some((entity, main_entity));
-        }
-
-        // We didn't find the entity, so return `None`.
-        None
-    }
-
     /// Iterates over all entities that need their specializations cleared in
     /// this frame.
     pub fn iter_to_despecialize<'a>(&'a self) -> impl Iterator<Item = &'a MainEntity> {
@@ -840,34 +794,28 @@ impl DirtySpecializations {
     pub fn iter_to_specialize<'a>(
         &'a self,
         view: RetainedViewEntity,
-        render_view_visible_mesh_entities: &'a RenderVisibleEntitiesClass,
+        render_visible_mesh_entities: &'a RenderVisibleMeshEntities,
         last_frame_view_pending_queues: &'a HashSet<(Entity, MainEntity)>,
-    ) -> impl Iterator<Item = (&'a Entity, &'a MainEntity)> {
+    ) -> impl Iterator<Item = &'a (Entity, MainEntity)> {
         (if self.must_wipe_specializations_for_view(view) {
-            Either::Left(render_view_visible_mesh_entities.iter_visible())
+            Either::Left(render_visible_mesh_entities.entities.iter())
         } else {
-            Either::Right(
-                render_view_visible_mesh_entities
-                    .added_entities()
-                    .iter()
-                    .map(|(entity, main_entity)| (entity, main_entity))
-                    .chain(self.changed_renderables.iter().filter_map(|main_entity| {
-                        self.entity_pair_from_visible_main_entity(
-                            render_view_visible_mesh_entities,
-                            main_entity,
-                        )
-                    })),
-            )
+            Either::Right(render_visible_mesh_entities.added_entities.iter().chain(
+                self.changed_renderables.iter().filter_map(|main_entity| {
+                    render_visible_mesh_entities
+                        .entities
+                        .binary_search_by_key(main_entity, |(_, main_entity)| *main_entity)
+                        .ok()
+                        .map(|index| &render_visible_mesh_entities.entities[index])
+                }),
+            ))
         })
-        .chain(last_frame_view_pending_queues.iter().filter_map(
-            |(entity, main_entity)| {
-                if render_view_visible_mesh_entities.entity_pair_is_visible(*entity, *main_entity) {
-                    Some((entity, main_entity))
-                } else {
-                    None
-                }
-            },
-        ))
+        .chain(last_frame_view_pending_queues.iter().filter(|entity_pair| {
+            render_visible_mesh_entities
+                .entities
+                .binary_search(entity_pair)
+                .is_ok()
+        }))
     }
 
     /// Iterates over all renderables that should be removed from the phase.
@@ -880,7 +828,7 @@ impl DirtySpecializations {
     pub fn iter_to_dequeue<'a>(
         &'a self,
         view: RetainedViewEntity,
-        render_visible_mesh_entities: &'a RenderVisibleEntitiesClass,
+        render_visible_mesh_entities: &'a RenderVisibleMeshEntities,
     ) -> impl Iterator<Item = &'a MainEntity> {
         render_visible_mesh_entities
             .removed_entities
@@ -893,7 +841,8 @@ impl DirtySpecializations {
                 // first place.
                 Either::Left(
                     render_visible_mesh_entities
-                        .iter_visible()
+                        .entities
+                        .iter()
                         .map(|(_, main_entity)| main_entity),
                 )
             } else {
@@ -917,49 +866,44 @@ impl DirtySpecializations {
     pub fn iter_to_queue<'a>(
         &'a self,
         view: RetainedViewEntity,
-        render_visible_mesh_entities: &'a RenderVisibleEntitiesClass,
+        render_visible_mesh_entities: &'a RenderVisibleMeshEntities,
         last_frame_view_pending_queues: &'a HashSet<(Entity, MainEntity)>,
-    ) -> impl Iterator<Item = (&'a Entity, &'a MainEntity)> {
+    ) -> impl Iterator<Item = &'a (Entity, MainEntity)> {
         (if self.must_wipe_specializations_for_view(view) {
-            Either::Left(render_visible_mesh_entities.iter_visible())
+            Either::Left(render_visible_mesh_entities.entities.iter())
         } else {
-            Either::Right(
-                render_visible_mesh_entities
-                    .added_entities()
-                    .iter()
-                    .map(|(entity, main_entity)| (entity, main_entity))
-                    .chain(self.changed_renderables.iter().filter_map(|main_entity| {
-                        // Only include entities that need respecialization, are
-                        // visible, and *didn't* become visible this frame. The
-                        // third criterion exists because we already yielded
-                        // such entities just prior to this and don't want to
-                        // yield the same entity twice.
-                        // Note that binary searching works because all lists in
-                        // `RenderVisibleEntities` are guaranteed to be sorted.
-                        if render_visible_mesh_entities
-                            .added_entities()
+            Either::Right(render_visible_mesh_entities.added_entities.iter().chain(
+                self.changed_renderables.iter().filter_map(|main_entity| {
+                    // Only include entities that need respecialization, are
+                    // visible, and *didn't* become visible this frame. The
+                    // third criterion exists because we already yielded
+                    // such entities just prior to this and don't want to
+                    // yield the same entity twice.
+                    // Note that binary searching works because all lists in
+                    // [`RenderVisibleMeshEntities`] are guaranteed to be
+                    // sorted.
+                    if render_visible_mesh_entities
+                        .added_entities
+                        .binary_search_by_key(main_entity, |(_, main_entity)| *main_entity)
+                        .is_err()
+                    {
+                        render_visible_mesh_entities
+                            .entities
                             .binary_search_by_key(main_entity, |(_, main_entity)| *main_entity)
-                            .is_err()
-                        {
-                            self.entity_pair_from_visible_main_entity(
-                                render_visible_mesh_entities,
-                                main_entity,
-                            )
-                        } else {
-                            None
-                        }
-                    })),
-            )
+                            .ok()
+                            .map(|index| &render_visible_mesh_entities.entities[index])
+                    } else {
+                        None
+                    }
+                }),
+            ))
         })
-        .chain(last_frame_view_pending_queues.iter().filter_map(
-            |(entity, main_entity)| {
-                if render_visible_mesh_entities.entity_pair_is_visible(*entity, *main_entity) {
-                    Some((entity, main_entity))
-                } else {
-                    None
-                }
-            },
-        ))
+        .chain(last_frame_view_pending_queues.iter().filter(|entity_pair| {
+            render_visible_mesh_entities
+                .entities
+                .binary_search(entity_pair)
+                .is_ok()
+        }))
     }
 }
 

@@ -9,7 +9,7 @@ use bevy_ecs::{
     change_detection::DetectChanges,
     component::Component,
     entity::Entity,
-    query::{With, Without},
+    query::With,
     reflect::ReflectComponent,
     system::{Query, Res, ResMut},
     world::Ref,
@@ -19,12 +19,11 @@ use bevy_log::warn_once;
 use bevy_math::Vec2;
 use bevy_reflect::{std_traits::ReflectDefault, Reflect};
 use bevy_text::{
-    ComputedTextBlock, EditableText, Font, FontAtlasSet, FontCx, FontHinting, LayoutCx,
-    LetterSpacing, LineBreak, LineHeight, RemSize, ScaleCx, TextBounds, TextColor, TextError,
-    TextFont, TextLayout, TextLayoutInfo, TextMeasureInfo, TextPipeline, TextReader, TextRoot,
-    TextSpanAccess, TextWriter,
+    ComputedTextBlock, Font, FontAtlasSet, FontCx, FontHinting, LayoutCx, LetterSpacing, LineBreak,
+    LineHeight, RemSize, ScaleCx, TextBounds, TextColor, TextError, TextFont, TextLayout,
+    TextLayoutInfo, TextMeasureInfo, TextPipeline, TextReader, TextRoot, TextSpanAccess,
+    TextWriter,
 };
-
 use taffy::style::AvailableSpace;
 use tracing::error;
 
@@ -339,17 +338,14 @@ pub fn text_system(
     mut textures: ResMut<Assets<Image>>,
     mut font_atlas_set: ResMut<FontAtlasSet>,
     mut text_pipeline: ResMut<TextPipeline>,
-    mut text_query: Query<
-        (
-            Ref<ComputedNode>,
-            &TextLayout,
-            &mut TextLayoutInfo,
-            &mut TextNodeFlags,
-            &mut ComputedTextBlock,
-            Ref<FontHinting>,
-        ),
-        Without<EditableText>,
-    >,
+    mut text_query: Query<(
+        Ref<ComputedNode>,
+        &TextLayout,
+        &mut TextLayoutInfo,
+        &mut TextNodeFlags,
+        &mut ComputedTextBlock,
+        Ref<FontHinting>,
+    )>,
     mut scale_cx: ResMut<ScaleCx>,
 ) {
     for (node, block, mut text_layout_info, mut text_flags, mut computed, hinting) in

@@ -928,8 +928,7 @@ pub enum LineHeight {
 }
 
 impl LineHeight {
-    /// eval a line height
-    pub fn eval(self) -> parley::LineHeight {
+    pub(crate) fn eval(self, _font_size: f32) -> parley::LineHeight {
         match self {
             LineHeight::Px(px) => parley::LineHeight::Absolute(px),
             LineHeight::RelativeToFont(scale) => parley::LineHeight::FontSizeRelative(scale),

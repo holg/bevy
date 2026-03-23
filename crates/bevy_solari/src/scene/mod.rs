@@ -13,7 +13,7 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_render::{
     extract_resource::ExtractResourcePlugin,
     mesh::{
-        allocator::{allocate_and_free_meshes, MeshAllocatorSettings},
+        allocator::{allocate_and_free_meshes, MeshAllocator},
         RenderMesh,
     },
     render_asset::prepare_assets,
@@ -54,7 +54,7 @@ impl Plugin for RaytracingScenePlugin {
 
         render_app
             .world_mut()
-            .resource_mut::<MeshAllocatorSettings>()
+            .resource_mut::<MeshAllocator>()
             .extra_buffer_usages |= BufferUsages::BLAS_INPUT | BufferUsages::STORAGE;
 
         render_app

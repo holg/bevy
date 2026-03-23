@@ -524,7 +524,8 @@ pub fn queue_sprites(
         if let Some(visible_entities) = visible_entities.get::<Sprite>() {
             view_entities.extend(
                 visible_entities
-                    .iter_visible()
+                    .entities
+                    .iter()
                     .map(|(_, e)| e.index_u32() as usize),
             );
         }

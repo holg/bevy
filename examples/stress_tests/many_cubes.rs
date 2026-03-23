@@ -202,8 +202,7 @@ fn setup(
                             .mul_transform(*transform),
                     ))
                     .insert_if(NoFrustumCulling, || args.no_frustum_culling)
-                    .insert_if(NoAutomaticBatching, || args.no_automatic_batching)
-                    .insert_if(NoCpuCulling, || args.no_cpu_culling);
+                    .insert_if(NoAutomaticBatching, || args.no_automatic_batching);
             }
 
             // camera
@@ -266,38 +265,30 @@ fn setup(
                         continue;
                     }
                     // cube
-                    commands
-                        .spawn((
-                            Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
-                            MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
-                            Transform::from_xyz((x as f32) * scale, (y as f32) * scale, 0.0),
-                        ))
-                        .insert_if(NoCpuCulling, || args.no_cpu_culling);
-                    commands
-                        .spawn((
-                            Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
-                            MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
-                            Transform::from_xyz(
-                                (x as f32) * scale,
-                                dimensions.y as f32 * scale,
-                                (y as f32) * scale,
-                            ),
-                        ))
-                        .insert_if(NoCpuCulling, || args.no_cpu_culling);
-                    commands
-                        .spawn((
-                            Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
-                            MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
-                            Transform::from_xyz((x as f32) * scale, 0.0, (y as f32) * scale),
-                        ))
-                        .insert_if(NoCpuCulling, || args.no_cpu_culling);
-                    commands
-                        .spawn((
-                            Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
-                            MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
-                            Transform::from_xyz(0.0, (x as f32) * scale, (y as f32) * scale),
-                        ))
-                        .insert_if(NoCpuCulling, || args.no_cpu_culling);
+                    commands.spawn((
+                        Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
+                        MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
+                        Transform::from_xyz((x as f32) * scale, (y as f32) * scale, 0.0),
+                    ));
+                    commands.spawn((
+                        Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
+                        MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
+                        Transform::from_xyz(
+                            (x as f32) * scale,
+                            dimensions.y as f32 * scale,
+                            (y as f32) * scale,
+                        ),
+                    ));
+                    commands.spawn((
+                        Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
+                        MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
+                        Transform::from_xyz((x as f32) * scale, 0.0, (y as f32) * scale),
+                    ));
+                    commands.spawn((
+                        Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
+                        MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
+                        Transform::from_xyz(0.0, (x as f32) * scale, (y as f32) * scale),
+                    ));
                 }
             }
             // camera
@@ -324,19 +315,17 @@ fn setup(
             let size = cbrt(count as f32).round();
             let gap = 1.25;
 
-            for i in 0..count {
+            let cubes = (0..count).map(move |i| {
                 let x = i as f32 % size;
                 let y = (i as f32 / size) % size;
                 let z = i as f32 / (size * size);
                 let pos = Vec3::new(x * gap, y * gap, z * gap);
-                commands
-                    .spawn((
-                        Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
-                        MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
-                        Transform::from_translation(pos),
-                    ))
-                    .insert_if(NoCpuCulling, || args.no_cpu_culling);
-            }
+                (
+                    Mesh3d(meshes.choose(&mut material_rng).unwrap().0.clone()),
+                    MeshMaterial3d(materials.choose(&mut material_rng).unwrap().clone()),
+                    Transform::from_translation(pos),
+                )
+            });
 
             // camera
             commands.spawn((
@@ -344,6 +333,8 @@ fn setup(
                 Transform::from_xyz(100.0, 90.0, 100.0)
                     .looking_at(Vec3::new(0.0, -10.0, 0.0), Vec3::Y),
             ));
+
+            commands.spawn_batch(cubes);
         }
     }
 

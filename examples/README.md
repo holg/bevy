@@ -184,7 +184,6 @@ Example | Description
 [Parenting](../examples/3d/parenting.rs) | Demonstrates parent->child relationships and relative transformations
 [Percentage-closer soft shadows](../examples/3d/pcss.rs) | Demonstrates percentage-closer soft shadows (PCSS)
 [Physically Based Rendering](../examples/3d/pbr.rs) | Demonstrates use of Physically Based Rendering (PBR) properties
-[Rectangular Area Light](../examples/3d/rect_light.rs) | Simple 3D scene demonstrating rectangular area lights.
 [Reflection Probes](../examples/3d/reflection_probes.rs) | Demonstrates reflection probes
 [Render to Texture](../examples/3d/render_to_texture.rs) | Shows how to render to a texture, useful for mirrors, UI, or exporting images
 [Rotate Environment Map](../examples/3d/rotate_environment_map.rs) | Demonstrates how to rotate the skybox and the environment map simultaneously
@@ -592,7 +591,6 @@ Example | Description
 [Directional Navigation Overrides](../examples/ui/navigation/directional_navigation_overrides.rs) | Demonstration of automatic directional navigation between UI elements with manual overrides
 [Display and Visibility](../examples/ui/layout/display_and_visibility.rs) | Demonstrates how Display and Visibility work in the UI.
 [Drag to Scroll](../examples/ui/scroll_and_overflow/drag_to_scroll.rs) | This example tests scale factor, dragging and scrolling
-[Editable Text](../examples/ui/text/editable_text.rs) | Demonstrates a simple, unstyled text input widget
 [Feathers Widgets](../examples/ui/widgets/feathers.rs) | Gallery of Feathers Widgets
 [Flex Layout](../examples/ui/layout/flex_layout.rs) | Demonstrates how the AlignItems and JustifyContent properties can be composed to layout nodes and position text
 [Font Atlas Debug](../examples/ui/text/font_atlas_debug.rs) | Illustrates how FontAtlases are populated (used to optimize text rendering internally)

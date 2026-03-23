@@ -207,7 +207,7 @@ impl TextPipeline {
                 );
                 builder.push(StyleProperty::FontSize(section.font_size), range.clone());
                 builder.push(
-                    StyleProperty::LineHeight(section.line_height.eval()),
+                    StyleProperty::LineHeight(section.line_height.eval(section.font_size)),
                     range.clone(),
                 );
                 builder.push(
@@ -410,20 +410,18 @@ impl TextPipeline {
         }
 
         layout_info.size = Vec2::new(layout.full_width(), layout.height()).ceil();
-
         Ok(())
     }
 }
 
-/// Resolve a [`FontSource`], producing a [`FontFamily`], by looking it up in the [`Assets<Font>`] collection.
-pub fn resolve_font_source<'a>(
+fn resolve_font_source<'a>(
     font: &'a FontSource,
-    fonts: &Assets<Font>,
+    fonts: &'a Assets<Font>,
 ) -> Result<FontFamily<'a>, TextError> {
     Ok(match font {
         FontSource::Handle(handle) => {
             let font = fonts.get(handle.id()).ok_or(TextError::NoSuchFont)?;
-            FontFamily::Named(Cow::Owned(font.family_name.as_str().to_owned()))
+            FontFamily::Named(Cow::Borrowed(font.family_name.as_str()))
         }
         FontSource::Family(family) => FontFamily::Named(Cow::Borrowed(family.as_str())),
         FontSource::Serif => FontFamily::Generic(parley::GenericFamily::Serif),
@@ -461,10 +459,6 @@ pub struct TextLayoutInfo {
     pub run_geometry: Vec<RunGeometry>,
     /// The glyphs resulting size
     pub size: Vec2,
-    /// Cursor size and position for editing
-    pub cursor: Option<Rect>,
-    /// Selection rects
-    pub selection_rects: Vec<Rect>,
 }
 
 impl TextLayoutInfo {
@@ -474,8 +468,6 @@ impl TextLayoutInfo {
         self.glyphs.clear();
         self.run_geometry.clear();
         self.size = Vec2::ZERO;
-        self.cursor = None;
-        self.selection_rects.clear();
     }
 }
 
