@@ -507,7 +507,14 @@ pub fn extract_lights(
             #[cfg(not(feature = "experimental_pbr_pcss"))]
             soft_shadows_enabled: false,
             photometric: photometric_light.and_then(|pl| {
-                let profile = photometric_profiles.as_ref()?.get(pl.profile.id())?;
+                let profiles_available = photometric_profiles.is_some();
+                let profile = photometric_profiles.as_ref()?.get(pl.profile.id());
+                if profile.is_none() {
+                    tracing::warn!("Photometric extraction: profiles_res={}, profile for {:?} NOT FOUND",
+                        profiles_available, pl.profile.id());
+                }
+                let profile = profile?;
+                tracing::info!("Photometric extraction: found profile peak_cd={}", profile.peak_candela);
                 Some(ExtractedPhotometricData {
                     image_id: profile.image.id(),
                     peak_candela: profile.peak_candela,
@@ -1167,6 +1174,10 @@ pub fn prepare_lights(
                     phot_data.peak_candela,
                 );
                 flags_u32 |= (desc_idx & 0xFFFF) << 16;
+                tracing::info!("Photometric: light packed with desc_idx={}, peak_cd={}, flags=0x{:X}",
+                    desc_idx, phot_data.peak_candela, flags_u32);
+            } else {
+                tracing::warn!("Photometric: light has profile but render_photometric_profiles is None");
             }
         }
 

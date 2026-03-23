@@ -200,6 +200,7 @@ fn rebuild_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut profiles: ResMut<Assets<bevy::light::PhotometricProfile>>,
     mut text_query: Query<&mut Text, With<InfoText>>,
 ) {
     // Only rebuild when the flag has been incremented
@@ -220,10 +221,10 @@ fn rebuild_scene(
     let current_ldt_text = String::from_utf8_lossy(current_ldt_bytes);
     let current_ldt_parsed = parse_ldt(&current_ldt_text).ok();
 
-    // Create photometric profile from embedded data (no asset server fetch)
+    // Create photometric profile from embedded data
     let profile = if let Some(ref ldt) = current_ldt_parsed {
         let profile_asset = create_profile_from_ldt(ldt, &mut images);
-        asset_server.add(profile_asset)
+        profiles.add(profile_asset)
     } else {
         // Fallback: try asset server load
         let ldt_path = ldt_lib.profiles[ldt_lib.current].1.clone();

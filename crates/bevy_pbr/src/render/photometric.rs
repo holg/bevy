@@ -142,6 +142,12 @@ pub fn upload_photometric_descriptors(
 ) {
     buffer.clear();
 
+    let desc_count = render_profiles.descriptors.len();
+    let tex_count = render_profiles.binding_index_to_textures.len();
+    if desc_count > 0 {
+        info!("Photometric upload: {} descriptors, {} textures", desc_count, tex_count);
+    }
+
     for &descriptor in &render_profiles.descriptors {
         buffer.push(descriptor);
     }
