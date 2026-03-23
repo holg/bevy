@@ -70,6 +70,10 @@ struct InfoText;
 #[derive(Component)]
 struct FpsText;
 
+/// Trigger for scene rebuild — only set by handle_input, consumed by rebuild_scene.
+#[derive(Resource, Default)]
+struct RebuildFlag(bool);
+
 #[derive(Component)]
 struct OrbitCamera { focus: Vec3, radius: f32, yaw: f32, pitch: f32, auto_orbit: bool }
 
@@ -122,12 +126,9 @@ fn main() {
         .init_resource::<VisHelpers>()
         .init_resource::<LdtLibrary>()
         .add_systems(Startup, setup_camera)
+        .init_resource::<RebuildFlag>()
         .add_systems(Update, (handle_input, orbit_camera, update_fps))
-        .add_systems(Update, rebuild_scene.run_if(
-            resource_changed::<RenderMode>
-                .or_else(resource_changed::<VisHelpers>)
-                .or_else(resource_changed::<LdtLibrary>)
-        ))
+        .add_systems(Update, rebuild_scene.run_if(resource_changed::<RebuildFlag>))
         .run();
 }
 
@@ -154,27 +155,34 @@ fn handle_input(
     mut mode: ResMut<RenderMode>,
     mut vis: ResMut<VisHelpers>,
     mut ldt_lib: ResMut<LdtLibrary>,
+    mut rebuild: ResMut<RebuildFlag>,
 ) {
-    if keys.just_pressed(KeyCode::Digit1) { *mode = RenderMode::Plain; }
-    else if keys.just_pressed(KeyCode::Digit2) { *mode = RenderMode::MultiSpot; }
-    else if keys.just_pressed(KeyCode::Digit3) { *mode = RenderMode::Native; }
-    else if keys.just_pressed(KeyCode::Digit4) { *mode = RenderMode::CubemapCookie; }
-    else if keys.just_pressed(KeyCode::Digit5) { *mode = RenderMode::SideBySide; }
+    let mut needs_rebuild = false;
 
-    if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; info!("bollards: {}", vis.bollards); }
-    if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; info!("facades: {}", vis.facades); }
-    if keys.just_pressed(KeyCode::KeyP) { vis.persons = !vis.persons; info!("persons: {}", vis.persons); }
-    if keys.just_pressed(KeyCode::KeyH) { vis.heatmap = !vis.heatmap; info!("heatmap: {}", vis.heatmap); }
+    if keys.just_pressed(KeyCode::Digit1) { *mode = RenderMode::Plain; needs_rebuild = true; }
+    else if keys.just_pressed(KeyCode::Digit2) { *mode = RenderMode::MultiSpot; needs_rebuild = true; }
+    else if keys.just_pressed(KeyCode::Digit3) { *mode = RenderMode::Native; needs_rebuild = true; }
+    else if keys.just_pressed(KeyCode::Digit4) { *mode = RenderMode::CubemapCookie; needs_rebuild = true; }
+    else if keys.just_pressed(KeyCode::Digit5) { *mode = RenderMode::SideBySide; needs_rebuild = true; }
 
-    // Cycle LDT profiles with [ and ]
+    if keys.just_pressed(KeyCode::KeyB) { vis.bollards = !vis.bollards; needs_rebuild = true; }
+    if keys.just_pressed(KeyCode::KeyG) { vis.facades = !vis.facades; needs_rebuild = true; }
+    if keys.just_pressed(KeyCode::KeyP) { vis.persons = !vis.persons; needs_rebuild = true; }
+    if keys.just_pressed(KeyCode::KeyH) { vis.heatmap = !vis.heatmap; needs_rebuild = true; }
+
     if keys.just_pressed(KeyCode::BracketLeft) {
         let len = ldt_lib.profiles.len();
         ldt_lib.current = (len + ldt_lib.current - 1) % len;
-        info!("LDT: {} ({})", ldt_lib.current, ldt_lib.profiles[ldt_lib.current].0);
+        needs_rebuild = true;
     }
     if keys.just_pressed(KeyCode::BracketRight) {
         ldt_lib.current = (ldt_lib.current + 1) % ldt_lib.profiles.len();
-        info!("LDT: {} ({})", ldt_lib.current, ldt_lib.profiles[ldt_lib.current].0);
+        needs_rebuild = true;
+    }
+
+    if needs_rebuild {
+        rebuild.0 = !rebuild.0; // flip to trigger resource_changed
+        info!("rebuild requested: mode={:?}, heatmap={}, ldt={}", *mode, vis.heatmap, ldt_lib.current);
     }
 }
 
