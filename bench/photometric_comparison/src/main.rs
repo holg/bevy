@@ -192,7 +192,9 @@ fn rebuild_scene(
     mut images: ResMut<Assets<Image>>,
     mut text_query: Query<&mut Text, With<InfoText>>,
 ) {
+    let old_count = old.iter().count();
     for e in &old { commands.entity(e).despawn(); }
+    info!("rebuild_scene: mode={:?}, ldt={}, despawned {} entities", *mode, ldt_lib.current, old_count);
 
     let ldt_label = ldt_lib.profiles[ldt_lib.current].0.clone();
     let warm = Color::srgb(1.0, 0.72, 0.42);
