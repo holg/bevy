@@ -57,7 +57,7 @@ struct VisHelpers {
     heatmap: bool,
 }
 impl Default for VisHelpers {
-    fn default() -> Self { Self { bollards: true, facades: true, persons: true, heatmap: false } }
+    fn default() -> Self { Self { bollards: true, facades: true, persons: true, heatmap: true } }
 }
 
 /// Despawned on mode/vis switch.
