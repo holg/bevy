@@ -93,6 +93,7 @@ pub fn render_system(
         let _span = info_span!("present_frames").entered();
 
         world.resource_scope(|world, mut windows: Mut<ExtractedWindows>| {
+            let render_queue = world.resource::<RenderQueue>();
             let views = state.get(world).unwrap();
             for window in windows.values_mut() {
                 let view_needs_present = views.iter().any(|(view_target, camera)| {
@@ -103,7 +104,7 @@ pub fn render_system(
                 });
 
                 if view_needs_present || window.needs_initial_present {
-                    window.present();
+                    window.present(render_queue);
                     window.needs_initial_present = false;
                 }
             }
@@ -204,7 +205,10 @@ pub async fn initialize_renderer(
                 force_shader_model: ForceShaderModelToken::default(),
                 agility_sdk: None,
             },
-            noop: wgpu::NoopBackendOptions { enable: false },
+            noop: wgpu::NoopBackendOptions {
+                enable: false,
+                ..Default::default()
+            },
         },
     };
 
@@ -250,6 +254,7 @@ pub async fn initialize_renderer(
         power_preference: options.power_preference,
         compatible_surface: surface.as_ref(),
         force_fallback_adapter,
+        ..Default::default()
     };
 
     #[cfg(not(target_family = "wasm"))]

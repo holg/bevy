@@ -98,6 +98,17 @@ unused_qualifications = "warn"
 # [lints]
 # workspace = true
 
+# Local wgpu checkout for testing the DX12 bindless fix.
+# Points the whole wgpu family at ../wgpu (gfx-rs/wgpu trunk + local fix).
+# Remove before committing / opening a Bevy PR.
+[patch.crates-io]
+wgpu = { path = "../wgpu/wgpu" }
+wgpu-core = { path = "../wgpu/wgpu-core" }
+wgpu-hal = { path = "../wgpu/wgpu-hal" }
+wgpu-types = { path = "../wgpu/wgpu-types" }
+wgpu-naga-bridge = { path = "../wgpu/wgpu-naga-bridge" }
+naga = { path = "../wgpu/naga" }
+
 [lints.clippy]
 doc_markdown = "warn"
 manual_let_else = "warn"

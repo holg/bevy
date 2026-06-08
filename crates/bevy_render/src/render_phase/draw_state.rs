@@ -92,7 +92,7 @@ impl DrawState {
         (
             buffer_slice.id(),
             buffer_slice.offset(),
-            buffer_slice.size(),
+            core::num::NonZero::new(buffer_slice.size()).unwrap(),
         )
     }
 
