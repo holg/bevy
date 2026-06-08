@@ -1280,7 +1280,12 @@ impl FromWorld for PreprocessPipelines {
         let gpu_late_occlusion_culling_bind_group_layout_entries =
             gpu_occlusion_culling_bind_group_layout_entries().extend_with_indices(((
                 13,
-                storage_buffer_read_only::<LatePreprocessWorkItemIndirectParameters>(
+                // Must be read-write (not read-only): the late-phase shader calls
+                // `atomicLoad` on this buffer, which naga lowers to a UAV-only
+                // `InterlockedOr` on DX12. A read-only SRV declaration fails to
+                // compile. Must match the `read_write` binding in
+                // `mesh_preprocess.wgsl`.
+                storage_buffer::<LatePreprocessWorkItemIndirectParameters>(
                     /*has_dynamic_offset=*/ false,
                 ),
             ),));

@@ -112,7 +112,12 @@ struct Immediates {
 #endif  // EARLY_PHASE
 
 #ifdef LATE_PHASE
-@group(0) @binding(13) var<storage, read> late_preprocess_work_item_indirect_parameters:
+// NOTE: must be `read_write`, not `read`: the late phase calls `atomicLoad` on
+// the `work_item_count` field, and `atomic<T>` in a storage buffer is only
+// well-defined with `read_write` access per the WGSL spec. naga's HLSL backend
+// lowers `atomicLoad` to `InterlockedOr(addr, 0, dest)`, a UAV-only operation,
+// so a read-only (`ByteAddressBuffer` SRV) declaration fails to compile on DX12.
+@group(0) @binding(13) var<storage, read_write> late_preprocess_work_item_indirect_parameters:
     array<LatePreprocessWorkItemIndirectParameters>;
 #endif  // LATE_PHASE
 
